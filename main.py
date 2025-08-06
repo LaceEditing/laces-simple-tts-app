@@ -1,4 +1,9 @@
-﻿import tkinter as tk
+﻿"""
+Lace's Simple TTS App - AI Streamer Assistant with Twitch Integration
+Beautiful lavender-themed UI with complete streaming features
+"""
+
+import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox, font
 import json
 import os
@@ -18,6 +23,7 @@ import shutil
 import socket
 import re
 from datetime import datetime
+import sys
 
 # Optional imports (will check if available)
 try:
@@ -26,6 +32,20 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
+
+try:
+    import pyaudio
+
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+
+try:
+    import speech_recognition as sr
+
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    SPEECH_RECOGNITION_AVAILABLE = False
 
 try:
     from elevenlabs import generate, save, set_api_key, voices
@@ -58,6 +78,7 @@ except ImportError:
 # Constants
 CONFIG_FILE = "config.json"
 OBS_OUTPUT_FILE = "current_avatar.png"  # File that OBS will monitor
+ICON_FILE = "app_icon.ico"  # Application icon file
 
 # Beautiful Lavender Color Scheme
 COLORS = {
@@ -94,7 +115,12 @@ DEFAULT_CONFIG = {
     "twitch_response_chance": 0.8,
     "obs_mode": True,
     "openai_model": "gpt-4o-mini",
-    "twitch_cooldown": 5  # Seconds between Twitch responses
+    "twitch_cooldown": 5,  # Seconds between Twitch responses
+    "twitch_read_username": True,  # Read username before message
+    "twitch_read_message": True,  # Read the message content
+    "twitch_ai_response": True,  # Generate AI response
+    "input_device_index": -1,  # Default microphone
+    "output_device_index": -1  # Default speakers
 }
 
 
@@ -135,6 +161,56 @@ class ConfigManager:
         """Set a configuration value and save"""
         self.config[key] = value
         return self.save_config()
+
+
+class AudioDeviceManager:
+    """Manages audio input/output device selection"""
+
+    @staticmethod
+    def get_audio_devices():
+        """Get list of available audio devices"""
+        input_devices = []
+        output_devices = []
+
+        if PYAUDIO_AVAILABLE:
+            try:
+                p = pyaudio.PyAudio()
+
+                # Get device info
+                for i in range(p.get_device_count()):
+                    info = p.get_device_info_by_index(i)
+                    device_info = {
+                        'index': i,
+                        'name': info['name'],
+                        'channels': info['maxInputChannels'] or info['maxOutputChannels']
+                    }
+
+                    # Categorize as input or output
+                    if info['maxInputChannels'] > 0:
+                        input_devices.append(device_info)
+                    if info['maxOutputChannels'] > 0:
+                        output_devices.append(device_info)
+
+                p.terminate()
+            except Exception as e:
+                print(f"Error getting audio devices: {e}")
+
+        return input_devices, output_devices
+
+    @staticmethod
+    def set_pygame_output_device(device_index):
+        """Set pygame output device"""
+        if PYGAME_AVAILABLE and device_index >= 0:
+            try:
+                pygame.mixer.quit()
+                # Pygame doesn't support specific device selection easily
+                # This is a placeholder - actual implementation would need platform-specific code
+                pygame.mixer.init(frequency=48000, buffer=1024)
+                return True
+            except Exception as e:
+                print(f"Error setting output device: {e}")
+                return False
+        return False
 
 
 class TwitchChat:
@@ -453,6 +529,101 @@ class TTSManager:
             self._speak_streamelements(text, callback)
 
 
+class SimpleSpeechRecognition:
+    """Simple speech recognition using speech_recognition library"""
+
+    def __init__(self):
+        self.recognizer = None
+        self.microphone = None
+        self.is_listening = False
+        self.audio_data = []
+
+        if SPEECH_RECOGNITION_AVAILABLE:
+            self.recognizer = sr.Recognizer()
+            self.recognizer.energy_threshold = 3000
+            self.recognizer.dynamic_energy_threshold = True
+
+            # Try to get default microphone
+            try:
+                self.microphone = sr.Microphone()
+            except Exception as e:
+                print(f"Could not initialize microphone: {e}")
+
+    def start_listening(self, device_index=None):
+        """Start recording audio"""
+        if not SPEECH_RECOGNITION_AVAILABLE or not self.recognizer:
+            return False
+
+        try:
+            # Use specified device or default
+            if device_index and device_index >= 0:
+                self.microphone = sr.Microphone(device_index=device_index)
+            elif not self.microphone:
+                self.microphone = sr.Microphone()
+
+            self.is_listening = True
+            self.audio_data = []
+            return True
+        except Exception as e:
+            print(f"Error starting recording: {e}")
+            return False
+
+    def record_chunk(self):
+        """Record audio while key is held"""
+        if not self.is_listening or not self.microphone:
+            return
+
+        try:
+            with self.microphone as source:
+                # Adjust for ambient noise quickly
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.1)
+                # Record audio chunk
+                audio = self.recognizer.listen(source, timeout=0.5, phrase_time_limit=10)
+                self.audio_data.append(audio)
+        except sr.WaitTimeoutError:
+            pass
+        except Exception as e:
+            print(f"Recording error: {e}")
+
+    def stop_and_transcribe(self):
+        """Stop recording and convert to text"""
+        self.is_listening = False
+
+        if not self.audio_data:
+            return ""
+
+        # Combine audio chunks if multiple
+        # For simplicity, we'll use the last chunk
+        # In production, you'd want to combine them properly
+
+        try:
+            # Try different recognition methods
+            audio = self.audio_data[-1] if self.audio_data else None
+            if not audio:
+                return ""
+
+            # Try Google Speech Recognition (free, no API key needed)
+            try:
+                text = self.recognizer.recognize_google(audio)
+                return text
+            except sr.UnknownValueError:
+                return ""  # Could not understand audio
+            except sr.RequestError as e:
+                print(f"Google Speech Recognition error: {e}")
+
+                # Fallback to offline recognition if available
+                try:
+                    text = self.recognizer.recognize_sphinx(audio)
+                    return text
+                except:
+                    return ""
+        except Exception as e:
+            print(f"Transcription error: {e}")
+            return ""
+        finally:
+            self.audio_data = []
+
+
 class OBSImageOutput:
     """Manages image output for OBS integration"""
 
@@ -597,13 +768,16 @@ class StyledButton(tk.Button):
 
 
 class AIStreamerGUI:
-    """Main GUI Application"""
+    """Main GUI Application with beautiful lavender theme"""
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Lace's Simple TTS App")
-        self.root.geometry("1200x1300")
+        self.root.title("💜 Lace's Simple TTS App 💜")
+        self.root.geometry("1100x750")
         self.root.configure(bg=COLORS['bg'])
+
+        # Set custom icon if available
+        self.set_window_icon()
 
         # Set cute fonts
         self.setup_fonts()
@@ -616,6 +790,7 @@ class AIStreamerGUI:
         self.tts = TTSManager(self.config)
         self.ai = AIManager(self.config)
         self.obs_output = OBSImageOutput(self.config)
+        self.speech_recognition = SimpleSpeechRecognition()
 
         # Initialize Twitch with message callback
         self.twitch = TwitchChat(self.config, self.handle_twitch_message)
@@ -628,6 +803,12 @@ class AIStreamerGUI:
         self.message_queue = queue.Queue()
         self.push_to_talk_held = False
         self.twitch_monitor_thread = None
+
+        # Initialize config-based variables
+        self.read_username_var = tk.BooleanVar(value=self.config.get("twitch_read_username", True))
+        self.read_message_var = tk.BooleanVar(value=self.config.get("twitch_read_message", True))
+        self.ai_response_var = tk.BooleanVar(value=self.config.get("twitch_ai_response", True))
+        self.response_chance_var = tk.IntVar(value=int(self.config.get("twitch_response_chance", 0.8) * 100))
 
         # Create GUI
         self.create_gui()
@@ -642,6 +823,24 @@ class AIStreamerGUI:
         # Check for first run
         if not self.config.get("openai_api_key"):
             self.show_setup_wizard()
+
+    def set_window_icon(self):
+        """Set custom window icon if available"""
+        try:
+            # Try multiple icon formats
+            if os.path.exists(ICON_FILE):
+                self.root.iconbitmap(ICON_FILE)
+            elif os.path.exists("app_icon.png"):
+                icon = Image.open("app_icon.png")
+                photo = ImageTk.PhotoImage(icon)
+                self.root.wm_iconphoto(True, photo)
+            else:
+                # Create a simple purple icon as fallback
+                icon_img = Image.new('RGBA', (64, 64), COLORS['accent'])
+                photo = ImageTk.PhotoImage(icon_img)
+                self.root.wm_iconphoto(True, photo)
+        except Exception as e:
+            print(f"Could not set custom icon: {e}")
 
     def setup_fonts(self):
         """Setup cute fonts for the application"""
@@ -674,10 +873,17 @@ class AIStreamerGUI:
                         font=('Comic Sans MS', 11, 'bold'))
         style.configure('TEntry', fieldbackground=COLORS['entry_bg'])
         style.configure('TCheckbutton', background=COLORS['frame_bg'], foreground=COLORS['text'],
-                        font=('Comic Sans MS', 10))
+                        font=('Comic Sans MS', 10), focuscolor='none')
         style.configure('TRadiobutton', background=COLORS['frame_bg'], foreground=COLORS['text'])
         style.configure('TSpinbox', fieldbackground=COLORS['entry_bg'])
         style.configure('TCombobox', fieldbackground=COLORS['entry_bg'])
+
+        # Fix checkbox appearance to show checkmarks instead of X
+        style.map('TCheckbutton',
+                  background=[('active', COLORS['frame_bg']),
+                              ('!disabled', COLORS['frame_bg'])],
+                  indicatorcolor=[('selected', COLORS['success']),
+                                  ('!selected', COLORS['entry_bg'])])
 
         # Notebook styling
         style.configure('TNotebook', background=COLORS['bg'], borderwidth=0)
@@ -696,6 +902,10 @@ class AIStreamerGUI:
         title_label = tk.Label(header_frame, text="✨ Lace's Simple TTS App ✨",
                                font=self.title_font, bg=COLORS['accent'], fg='white')
         title_label.pack(expand=True)
+
+        subtitle_label = tk.Label(header_frame, text="Your AI Streaming Companion 💜",
+                                  font=self.small_font, bg=COLORS['accent'], fg='#F0E6FF')
+        subtitle_label.pack()
 
         # Create notebook for tabs
         notebook = ttk.Notebook(self.root)
@@ -791,6 +1001,20 @@ class AIStreamerGUI:
                                      command=self.toggle_auto_commentary)
         self.auto_btn.pack(pady=10)
 
+        # Interval control
+        interval_frame = ttk.Frame(auto_frame)
+        interval_frame.pack(pady=5)
+
+        ttk.Label(interval_frame, text="Interval (seconds):").pack(side='left', padx=5)
+        self.interval_spinbox = ttk.Spinbox(interval_frame, from_=5, to=300, width=10)
+        self.interval_spinbox.pack(side='left', padx=5)
+        self.interval_spinbox.set(self.config.get("commentary_interval", 15))
+
+        # Save interval button
+        StyledButton(interval_frame, text="Update",
+                     command=self.update_commentary_interval,
+                     font=self.small_font, padx=10, pady=5).pack(side='left', padx=5)
+
         self.auto_status = ttk.Label(auto_frame, text="Status: Disabled")
         self.auto_status.pack(pady=5)
 
@@ -862,32 +1086,46 @@ class AIStreamerGUI:
         self.twitch_chat_display.tag_config('timestamp', foreground='#888888', font=('Consolas', 9))
 
         # Response Settings
-        response_frame = ttk.LabelFrame(self.twitch_frame, text="AI Response Settings")
+        response_frame = ttk.LabelFrame(self.twitch_frame, text="TTS Settings for Twitch Chat")
         response_frame.pack(fill='x', padx=20, pady=10)
 
         settings_grid = ttk.Frame(response_frame)
         settings_grid.pack(padx=10, pady=10)
 
-        self.respond_twitch_var = tk.BooleanVar(value=self.config.get("respond_to_twitch", True))
-        ttk.Checkbutton(settings_grid, text="Enable AI responses to chat",
-                        variable=self.respond_twitch_var).grid(row=0, column=0, sticky='w', pady=5)
+        # Reading options
+        ttk.Label(settings_grid, text="📖 Reading Options:", font=self.header_font).grid(row=0, column=0, columnspan=2,
+                                                                                        sticky='w', pady=(5, 10))
 
-        ttk.Label(settings_grid, text="Response chance (%):", font=self.small_font).grid(row=1, column=0, sticky='w',
-                                                                                         pady=5)
-        self.response_chance_var = tk.IntVar(value=int(self.config.get("twitch_response_chance", 0.8) * 100))
+        ttk.Checkbutton(settings_grid, text="Read username before message",
+                        variable=self.read_username_var).grid(row=1, column=0, columnspan=2, sticky='w', padx=20,
+                                                              pady=2)
+
+        ttk.Checkbutton(settings_grid, text="Read the message content",
+                        variable=self.read_message_var).grid(row=2, column=0, columnspan=2, sticky='w', padx=20, pady=2)
+
+        ttk.Checkbutton(settings_grid, text="Generate AI response after reading",
+                        variable=self.ai_response_var).grid(row=3, column=0, columnspan=2, sticky='w', padx=20, pady=2)
+
+        # AI Response Settings (only applies when AI response is enabled)
+        ttk.Label(settings_grid, text="🤖 AI Response Settings:", font=self.header_font).grid(row=4, column=0,
+                                                                                             columnspan=2, sticky='w',
+                                                                                             pady=(15, 10))
+
+        ttk.Label(settings_grid, text="Response chance (%):", font=self.small_font).grid(row=5, column=0, sticky='w',
+                                                                                         padx=20, pady=5)
         response_scale = ttk.Scale(settings_grid, from_=0, to=100, orient='horizontal',
                                    variable=self.response_chance_var, length=200)
-        response_scale.grid(row=1, column=1, pady=5)
+        response_scale.grid(row=5, column=1, pady=5)
         self.response_chance_label = ttk.Label(settings_grid, text=f"{self.response_chance_var.get()}%")
-        self.response_chance_label.grid(row=1, column=2, padx=10)
+        self.response_chance_label.grid(row=5, column=2, padx=10)
 
         # Update label when scale moves
         response_scale.configure(command=lambda v: self.response_chance_label.config(text=f"{int(float(v))}%"))
 
-        ttk.Label(settings_grid, text="Cooldown (seconds):", font=self.small_font).grid(row=2, column=0, sticky='w',
-                                                                                        pady=5)
+        ttk.Label(settings_grid, text="Cooldown (seconds):", font=self.small_font).grid(row=6, column=0, sticky='w',
+                                                                                        padx=20, pady=5)
         self.cooldown_spinbox = ttk.Spinbox(settings_grid, from_=1, to=60, width=10)
-        self.cooldown_spinbox.grid(row=2, column=1, sticky='w', pady=5)
+        self.cooldown_spinbox.grid(row=6, column=1, sticky='w', pady=5)
         self.cooldown_spinbox.set(self.config.get("twitch_cooldown", 5))
 
     def create_settings_tab(self):
@@ -940,6 +1178,43 @@ class AIStreamerGUI:
         self.ptt_key_entry.grid(row=1, column=1, sticky='w', padx=5, pady=5)
         self.ptt_key_entry.insert(0, self.config.get("push_to_talk_key", "v"))
 
+        # Audio Device Settings Card
+        audio_card = ttk.LabelFrame(settings_container, text="🔊 Audio Devices")
+        audio_card.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
+
+        # Get available devices
+        input_devices, output_devices = AudioDeviceManager.get_audio_devices()
+
+        # Input device selection
+        ttk.Label(audio_card, text="Microphone:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
+        self.input_device_var = tk.StringVar(value="Default")
+        input_device_names = ["Default"] + [d['name'] for d in input_devices]
+        input_combo = ttk.Combobox(audio_card, textvariable=self.input_device_var, width=30,
+                                   values=input_device_names, state='readonly')
+        input_combo.grid(row=0, column=1, padx=5, pady=5)
+
+        # Set current selection
+        current_input = self.config.get("input_device_index", -1)
+        if current_input >= 0 and current_input < len(input_devices):
+            input_combo.set(input_devices[current_input]['name'])
+
+        # Output device selection
+        ttk.Label(audio_card, text="Speakers:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        self.output_device_var = tk.StringVar(value="Default")
+        output_device_names = ["Default"] + [d['name'] for d in output_devices]
+        output_combo = ttk.Combobox(audio_card, textvariable=self.output_device_var, width=30,
+                                    values=output_device_names, state='readonly')
+        output_combo.grid(row=1, column=1, padx=5, pady=5)
+
+        # Set current selection
+        current_output = self.config.get("output_device_index", -1)
+        if current_output >= 0 and current_output < len(output_devices):
+            output_combo.set(output_devices[current_output]['name'])
+
+        # Store device lists for saving
+        self.input_devices = input_devices
+        self.output_devices = output_devices
+
         # Twitch Settings Card
         twitch_card = ttk.LabelFrame(settings_container, text="💬 Twitch Settings")
         twitch_card.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
@@ -961,7 +1236,7 @@ class AIStreamerGUI:
 
         # Avatar Settings Card
         avatar_card = ttk.LabelFrame(settings_container, text="🎭 Avatar Images")
-        avatar_card.grid(row=1, column=1, sticky='ew', padx=5, pady=5)
+        avatar_card.grid(row=2, column=1, sticky='ew', padx=5, pady=5)
 
         ttk.Label(avatar_card, text="Idle Image:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
         self.idle_path_label = ttk.Label(avatar_card, text=os.path.basename(self.config.get("idle_image", "")))
@@ -977,7 +1252,7 @@ class AIStreamerGUI:
 
         # System Prompt Card
         prompt_card = ttk.LabelFrame(settings_container, text="💭 AI Personality")
-        prompt_card.grid(row=2, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
+        prompt_card.grid(row=3, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
 
         self.prompt_text = scrolledtext.ScrolledText(prompt_card, height=4, width=60,
                                                      bg=COLORS['entry_bg'], fg=COLORS['text'],
@@ -987,7 +1262,7 @@ class AIStreamerGUI:
 
         # Save Button
         save_frame = ttk.Frame(settings_container)
-        save_frame.grid(row=3, column=0, columnspan=2, pady=20)
+        save_frame.grid(row=4, column=0, columnspan=2, pady=20)
 
         StyledButton(save_frame, text="💾 Save All Settings",
                      command=self.save_settings, bg=COLORS['success']).pack()
@@ -1045,8 +1320,8 @@ class AIStreamerGUI:
                 # Add to main message queue for AI response
                 self.message_queue.put(("twitch", content))
 
-                # Respond if enabled
-                if self.respond_twitch_var.get() and self.twitch_connected:
+                # Process for TTS/AI response if connected
+                if self.twitch_connected:
                     self.process_twitch_message_for_ai(username, message)
             else:
                 self.twitch_chat_display.insert('end', f"{content}\n", 'message')
@@ -1054,31 +1329,66 @@ class AIStreamerGUI:
         self.twitch_chat_display.see('end')
 
     def process_twitch_message_for_ai(self, username, message):
-        """Process Twitch message and generate AI response"""
+        """Process Twitch message and generate AI response or just read it"""
         import random
 
-        # Check cooldown
+        # Always process if connected (removed the respond_twitch_var check)
+        if not self.twitch_connected:
+            return
+
+        # Check cooldown (only for AI responses)
         current_time = time.time()
-        cooldown = self.config.get("twitch_cooldown", 5)
+        cooldown = int(self.cooldown_spinbox.get()) if hasattr(self, 'cooldown_spinbox') else self.config.get(
+            "twitch_cooldown", 5)
 
-        if current_time - self.twitch.last_response_time < cooldown:
-            return
+        if self.ai_response_var.get():
+            # AI response mode - check cooldown and chance
+            if current_time - self.twitch.last_response_time < cooldown:
+                return
 
-        # Check response chance
-        chance = self.response_chance_var.get() / 100.0
-        if random.random() > chance:
-            return
+            # Check response chance
+            chance = self.response_chance_var.get() / 100.0
+            if random.random() > chance:
+                return
 
-        # Generate AI response
-        response = self.ai.get_response(
-            f"Twitch viewer {username} said: {message}. Respond briefly and conversationally."
-        )
+            # Update last response time
+            self.twitch.last_response_time = current_time
 
-        # Update last response time
-        self.twitch.last_response_time = current_time
+        # Build the text to speak (combining username and message if needed)
+        text_to_speak = ""
 
-        # Add response to message queue for TTS
-        self.message_queue.put(("ai", response))
+        # Add username if enabled
+        if self.read_username_var.get():
+            text_to_speak += f"{username} said: "
+
+        # Add message if enabled
+        if self.read_message_var.get():
+            text_to_speak += message
+
+        # Read the message first if we have text to speak
+        if text_to_speak:
+            # Use a special queue message that won't trigger AI response yet
+            self.message_queue.put(("tts_only", text_to_speak))
+
+        # If AI response is enabled, generate it AFTER reading the message
+        if self.ai_response_var.get():
+            # Add a small delay to ensure the reading completes first
+            def generate_ai_response():
+                # Wait a moment if we just read something
+                if text_to_speak:
+                    time.sleep(0.5)  # Small pause between reading and responding
+
+                # Generate AI response
+                response = self.ai.get_response(
+                    f"Twitch viewer {username} said: {message}. Respond briefly and conversationally."
+                )
+
+                # Queue the AI response
+                self.message_queue.put(("ai", response))
+
+            # Run AI response generation in a separate thread
+            thread = threading.Thread(target=generate_ai_response, daemon=True)
+            thread.start()
 
     def toggle_twitch_connection(self):
         """Toggle Twitch chat connection"""
@@ -1126,10 +1436,10 @@ class AIStreamerGUI:
         self.twitch_monitor_thread.start()
 
     def show_setup_wizard(self):
-        """Show beautiful setup wizard"""
+        """Show simplified setup instructions"""
         wizard = tk.Toplevel(self.root)
         wizard.title("Welcome to Lace's Simple TTS App!")
-        wizard.geometry("700x600")
+        wizard.geometry("700x650")
         wizard.configure(bg=COLORS['bg'])
         wizard.transient(self.root)
 
@@ -1138,58 +1448,222 @@ class AIStreamerGUI:
         header.pack(fill='x')
         header.pack_propagate(False)
 
-        tk.Label(header, text="✨ Welcome! ✨",
+        tk.Label(header, text="✨ Quick Setup Guide ✨",
                  font=self.title_font, bg=COLORS['accent'], fg='white').pack(expand=True)
 
-        # Content
-        content = ttk.Frame(wizard)
-        content.pack(fill='both', expand=True, padx=30, pady=20)
+        # Scrollable content
+        canvas = tk.Canvas(wizard, bg=COLORS['frame_bg'])
+        scrollbar = ttk.Scrollbar(wizard, orient="vertical", command=canvas.yview)
+        content_frame = tk.Frame(canvas, bg=COLORS['frame_bg'])
 
-        # Step 1
-        step1_frame = ttk.LabelFrame(content, text="Step 1: OpenAI Setup (Required)")
-        step1_frame.pack(fill='x', pady=10)
+        content_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
 
-        ttk.Label(step1_frame, text="Get your API key from: https://platform.openai.com/api-keys",
-                  foreground=COLORS['info']).pack(padx=10, pady=5)
+        canvas.create_window((0, 0), window=content_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
 
-        self.wizard_api_entry = ttk.Entry(step1_frame, width=50, font=self.normal_font)
-        self.wizard_api_entry.pack(padx=10, pady=10)
+        # Instructions
+        instructions = [
+            ("🤖 Step 1: OpenAI Setup",
+             "• Go to: platform.openai.com/api-keys\n"
+             "• Create account & generate API key\n"
+             "• Go to Settings tab → paste key → Save",
+             COLORS['info']),
 
-        # Step 2
-        step2_frame = ttk.LabelFrame(content, text="Step 2: Choose Your Voice")
-        step2_frame.pack(fill='x', pady=10)
+            ("🎤 Step 2: Voice Input",
+             "• Hold V key to talk (configurable)\n"
+             "• Release to process & get AI response\n"
+             "• Green indicator shows when recording",
+             COLORS['success']),
 
-        ttk.Label(step2_frame, text="StreamElements Brian is free and works immediately!").pack(padx=10, pady=10)
+            ("💬 Step 3: Twitch (Optional)",
+             "• Go to Twitch tab\n"
+             "• Enter username & channel name\n"
+             "• Get OAuth: twitchapps.com/tmi/\n"
+             "• Click Connect",
+             COLORS['twitch']),
 
-        # Step 3
-        step3_frame = ttk.LabelFrame(content, text="Step 3: Twitch (Optional)")
-        step3_frame.pack(fill='x', pady=10)
+            ("🎨 Step 4: Avatar Images",
+             "• Prepare idle.png and speaking.png\n"
+             "• Use transparent PNGs for best results\n"
+             "• Set in Settings → Avatar Images",
+             COLORS['accent']),
 
-        ttk.Label(step3_frame, text="You can connect to Twitch later in the Settings tab!").pack(padx=10, pady=10)
+            ("📹 Step 5: OBS Integration",
+             "• Add Image Source in OBS\n"
+             f"• Point to: current_avatar.png\n"
+             "• Check 'Unload image when not showing'\n"
+             "• Image auto-updates when AI speaks!",
+             COLORS['button']),
 
-        # Buttons
-        button_frame = ttk.Frame(wizard)
+            ("🔊 Voice Options",
+             "• Default: StreamElements Brian (free!)\n"
+             "• Optional: ElevenLabs, Azure, or local\n"
+             "• Configure in Settings → Voice",
+             COLORS['accent'])
+        ]
+
+        for title, text, color in instructions:
+            frame = tk.Frame(content_frame, bg=COLORS['frame_bg'])
+            frame.pack(fill='x', padx=20, pady=10)
+
+            tk.Label(frame, text=title, font=self.header_font,
+                     bg=COLORS['frame_bg'], fg=color).pack(anchor='w')
+            tk.Label(frame, text=text, font=self.small_font,
+                     bg=COLORS['frame_bg'], fg=COLORS['text'],
+                     justify='left').pack(anchor='w', padx=20, pady=5)
+
+        # Tips
+        tips_frame = tk.Frame(content_frame, bg=COLORS['frame_bg'])
+        tips_frame.pack(fill='x', padx=20, pady=10)
+
+        tk.Label(tips_frame, text="💡 Pro Tips:", font=self.header_font,
+                 bg=COLORS['frame_bg'], fg=COLORS['success']).pack(anchor='w')
+        tk.Label(tips_frame, text="• Test voice with 'Test Voice' button\n"
+                                  "• Adjust response chance for Twitch\n"
+                                  "• All settings auto-save to config.json\n"
+                                  "• Check Logs tab for troubleshooting",
+                 font=self.small_font, bg=COLORS['frame_bg'],
+                 fg=COLORS['text'], justify='left').pack(anchor='w', padx=20)
+
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Close button
+        button_frame = tk.Frame(wizard, bg=COLORS['bg'])
         button_frame.pack(pady=20)
 
-        def finish_setup():
-            api_key = self.wizard_api_entry.get().strip()
-            if api_key:
-                self.config.set("openai_api_key", api_key)
-                self.ai.init_ai()
-                messagebox.showinfo("Success", "Setup complete! Press V to start talking!")
-                wizard.destroy()
-            else:
-                messagebox.showwarning("Missing Key", "Please enter an OpenAI API key.")
-
-        StyledButton(button_frame, text="Complete Setup", command=finish_setup,
-                     bg=COLORS['success']).pack(side='left', padx=10)
-        StyledButton(button_frame, text="Skip for Now", command=wizard.destroy).pack(side='left')
+        StyledButton(button_frame, text="Got it! Let's go! 🚀",
+                     command=wizard.destroy,
+                     bg=COLORS['success']).pack()
 
     def setup_push_to_talk(self):
-        """Setup push-to-talk functionality"""
-        # This would need actual speech recognition implementation
-        # For now, using placeholder
-        pass
+        """Setup push-to-talk functionality with real speech recognition"""
+
+        def ptt_listener():
+            recording = False
+            while True:
+                try:
+                    ptt_key = self.config.get("push_to_talk_key", "v")
+
+                    # Check if key is pressed
+                    if keyboard.is_pressed(ptt_key):
+                        if not self.push_to_talk_held and not self.is_listening and not self.is_speaking:
+                            self.push_to_talk_held = True
+                            recording = True
+                            self.start_voice_recording()
+                    else:
+                        if self.push_to_talk_held and recording:
+                            self.push_to_talk_held = False
+                            recording = False
+                            self.stop_voice_recording()
+
+                    time.sleep(0.05)  # Small delay to prevent high CPU usage
+                except Exception as e:
+                    print(f"PTT error: {e}")
+                    time.sleep(0.1)
+
+        thread = threading.Thread(target=ptt_listener, daemon=True)
+        thread.start()
+
+    def start_voice_recording(self):
+        """Start recording voice with visual feedback"""
+        if self.is_listening or self.is_speaking:
+            return
+
+        self.is_listening = True
+        self.update_status("Voice", "🔴 Recording...", COLORS['error'])
+        self.animate_voice_indicator(True)
+
+        # Update UI
+        if hasattr(self, 'ptt_label'):
+            self.root.after(0, lambda: self.ptt_label.config(
+                text=f"Recording... Release [{self.config.get('push_to_talk_key', 'V').upper()}] to stop",
+                foreground=COLORS['error']))
+
+        # Start recording thread
+        def record_thread():
+            try:
+                # Get audio device index
+                device_index = self.config.get("input_device_index", -1)
+                if device_index < 0:
+                    device_index = None
+
+                # Start recording
+                if self.speech_recognition.start_listening(device_index):
+                    # Keep recording while key is held
+                    while self.push_to_talk_held and self.is_listening:
+                        self.speech_recognition.record_chunk()
+                        time.sleep(0.1)
+            except Exception as e:
+                print(f"Recording error: {e}")
+
+        thread = threading.Thread(target=record_thread, daemon=True)
+        thread.start()
+
+    def stop_voice_recording(self):
+        """Stop recording and process the audio"""
+        if not self.is_listening:
+            return
+
+        self.is_listening = False
+        self.update_status("Voice", "Processing...", COLORS['info'])
+        self.animate_voice_indicator(False)
+
+        # Update UI
+        if hasattr(self, 'ptt_label'):
+            self.root.after(0, lambda: self.ptt_label.config(
+                text=f"Hold [{self.config.get('push_to_talk_key', 'V').upper()}] to talk",
+                foreground=COLORS['text']))
+
+        # Process recording in thread
+        def process_thread():
+            try:
+                # Get transcription
+                text = self.speech_recognition.stop_and_transcribe()
+
+                if text and text.strip():
+                    # Show what was heard
+                    self.message_queue.put(("user", f"[Voice]: {text}"))
+
+                    # Get screen capture
+                    screen_b64 = ScreenCapture.capture_screen_base64()
+
+                    # Get AI response
+                    prompt = f"User said: {text}"
+                    if screen_b64:
+                        prompt += " (Also consider what's visible on screen)"
+
+                    response = self.ai.get_response(prompt, screen_b64)
+                    self.message_queue.put(("ai", response))
+                else:
+                    self.message_queue.put(
+                        ("system", "No speech detected. Try speaking louder or check your microphone."))
+
+                # Update status
+                self.update_status("Voice", "Ready", COLORS['success'])
+
+            except Exception as e:
+                print(f"Processing error: {e}")
+                self.message_queue.put(("system", f"Voice processing error: {str(e)}"))
+                self.update_status("Voice", "Error", COLORS['error'])
+
+        thread = threading.Thread(target=process_thread, daemon=True)
+        thread.start()
+
+    def update_commentary_interval(self):
+        """Update the auto commentary interval"""
+        try:
+            interval = int(self.interval_spinbox.get())
+            self.config.set("commentary_interval", interval)
+            self.auto_status.config(
+                text=f"Status: {'Active' if self.auto_commentary_active else 'Disabled'} ({interval}s)")
+            messagebox.showinfo("Updated", f"Commentary interval set to {interval} seconds")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid number")
 
     def toggle_auto_commentary(self):
         """Toggle automatic commentary"""
@@ -1316,14 +1790,39 @@ class AIStreamerGUI:
         self.config.set("twitch_username", self.twitch_username_entry.get())
         self.config.set("twitch_oauth", self.twitch_oauth_entry.get())
         self.config.set("twitch_channel", self.twitch_channel_entry.get())
-        self.config.set("respond_to_twitch", self.respond_twitch_var.get())
+        self.config.set("twitch_read_username", self.read_username_var.get())
+        self.config.set("twitch_read_message", self.read_message_var.get())
+        self.config.set("twitch_ai_response", self.ai_response_var.get())
         self.config.set("twitch_response_chance", self.response_chance_var.get() / 100.0)
         self.config.set("twitch_cooldown", int(self.cooldown_spinbox.get()))
         self.config.set("commentary_interval",
                         int(self.interval_spinbox.get()) if hasattr(self, 'interval_spinbox') else 15)
         self.config.set("system_prompt", self.prompt_text.get('1.0', 'end-1c'))
 
-        self.ptt_label.config(text=f"Hold [{self.ptt_key_entry.get().upper()}] to talk")
+        # Save audio device selections
+        if hasattr(self, 'input_devices'):
+            selected_input = self.input_device_var.get()
+            if selected_input == "Default":
+                self.config.set("input_device_index", -1)
+            else:
+                for device in self.input_devices:
+                    if device['name'] == selected_input:
+                        self.config.set("input_device_index", device['index'])
+                        break
+
+        if hasattr(self, 'output_devices'):
+            selected_output = self.output_device_var.get()
+            if selected_output == "Default":
+                self.config.set("output_device_index", -1)
+            else:
+                for device in self.output_devices:
+                    if device['name'] == selected_output:
+                        self.config.set("output_device_index", device['index'])
+                        AudioDeviceManager.set_pygame_output_device(device['index'])
+                        break
+
+        if hasattr(self, 'ptt_label'):
+            self.ptt_label.config(text=f"Hold [{self.ptt_key_entry.get().upper()}] to talk")
 
         self.ai.init_ai()
 
@@ -1359,6 +1858,15 @@ class AIStreamerGUI:
                     self.show_speaking_image()
                     self.tts.speak(message, callback=self.show_idle_image)
 
+                elif sender == "tts_only":
+                    # Just speak without logging as AI response
+                    self.chat_text.insert('end', f"[{timestamp}] ", 'timestamp')
+                    self.chat_text.insert('end', f"TTS: ", 'system')
+                    self.chat_text.insert('end', f"{message}\n", 'system_message')
+
+                    self.show_speaking_image()
+                    self.tts.speak(message, callback=self.show_idle_image)
+
                 elif sender == "user":
                     self.chat_text.insert('end', f"[{timestamp}] ", 'timestamp')
                     self.chat_text.insert('end', f"YOU: ", 'user')
@@ -1369,6 +1877,11 @@ class AIStreamerGUI:
                     self.chat_text.insert('end', f"TWITCH: ", 'twitch')
                     self.chat_text.insert('end', f"{message}\n", 'twitch_message')
 
+                elif sender == "system":
+                    self.chat_text.insert('end', f"[{timestamp}] ", 'timestamp')
+                    self.chat_text.insert('end', f"SYSTEM: ", 'system')
+                    self.chat_text.insert('end', f"{message}\n", 'system_message')
+
                 # Configure text tags
                 self.chat_text.tag_config('timestamp', foreground='#7F8C8D')
                 self.chat_text.tag_config('ai', foreground='#E74C3C', font=('Arial', 10, 'bold'))
@@ -1377,6 +1890,8 @@ class AIStreamerGUI:
                 self.chat_text.tag_config('user_message', foreground='#ECF0F1')
                 self.chat_text.tag_config('twitch', foreground='#9B59B6', font=('Arial', 10, 'bold'))
                 self.chat_text.tag_config('twitch_message', foreground='#ECF0F1')
+                self.chat_text.tag_config('system', foreground='#F39C12', font=('Arial', 10, 'bold'))
+                self.chat_text.tag_config('system_message', foreground='#BDC3C7')
 
                 self.chat_text.see('end')
         except queue.Empty:
