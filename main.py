@@ -270,7 +270,8 @@ DEFAULT_CONFIG = {
     "enable_animations": True,
     "animation_speed": 0.3,
     "tts_cache_enabled": True,
-    "performance_mode": False
+    "performance_mode": False,
+    "api_out_message": "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"
 }
 
 
@@ -1167,9 +1168,8 @@ class AIManager:
         """Get a fallback response when API fails"""
         # Check if it's likely an API credit issue
         if self.api_failures >= self.max_api_failures:
-            return ("Oh no! It looks like my AI credits might have run out! "
-                    "Please check your OpenAI account balance and add more credits if needed. "
-                    "In the meantime, I'll just pretend to be smart! 🤖")
+            return self.config.get("api_out_message",
+                                   "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜")
 
         # Return a random fallback response
         return random.choice(FALLBACK_RESPONSES)
@@ -1238,9 +1238,8 @@ class AIManager:
             # Check for specific error types
             if "insufficient_quota" in error_str or "rate_limit_exceeded" in error_str:
                 logger.error("OpenAI API quota exceeded")
-                return ("Uh oh! Looks like the OpenAI API credits have run out! 💸 "
-                        "Please add more credits to your OpenAI account at platform.openai.com. "
-                        "Until then, I'll be running on sass and sarcasm alone!")
+                return self.config.get("api_out_message",
+                                       "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜")
             elif "invalid_api_key" in error_str or "api_key" in error_str:
                 logger.error("Invalid OpenAI API key")
                 return ("Invalid API key detected! Please check your OpenAI API key in settings. "
@@ -1283,7 +1282,7 @@ class StyledButton(tk.Button):
         # Set default styling
         kwargs['bg'] = kwargs.get('bg', COLORS['button'])
         kwargs['fg'] = kwargs.get('fg', 'white')
-        kwargs['font'] = kwargs.get('font', ('Comic Sans MS', 10, 'bold'))
+        kwargs['font'] = kwargs.get('font', DEFAULT_BUTTON_FONT)
         kwargs['relief'] = kwargs.get('relief', 'flat')
         kwargs['cursor'] = kwargs.get('cursor', 'hand2')
         kwargs['padx'] = kwargs.get('padx', 20)
@@ -1428,17 +1427,25 @@ class AIStreamerGUI:
 
     def setup_fonts(self):
         """Setup cute fonts for the application"""
-        try:
-            self.title_font = font.Font(family="Comic Sans MS", size=20, weight="bold")
-            self.header_font = font.Font(family="Comic Sans MS", size=14, weight="bold")
-            self.normal_font = font.Font(family="Comic Sans MS", size=11)
-            self.small_font = font.Font(family="Comic Sans MS", size=9)
-        except:
-            # Fallback fonts if Comic Sans not available
-            self.title_font = font.Font(family="Arial", size=20, weight="bold")
-            self.header_font = font.Font(family="Arial", size=14, weight="bold")
-            self.normal_font = font.Font(family="Arial", size=11)
-            self.small_font = font.Font(family="Arial", size=9)
+        preferred = ["Nunito", "Quicksand", "Poppins", "Segoe UI", "Arial Rounded MT Bold", "Verdana", "Helvetica",
+                     "Arial"]
+        available = set(font.families())
+        for fam in preferred:
+            if fam in available:
+                self.ui_font_family = fam
+                break
+        else:
+            self.ui_font_family = "Arial"
+        # Core UI fonts
+        self.title_font = font.Font(family=self.ui_font_family, size=20, weight="bold")
+        self.header_font = font.Font(family=self.ui_font_family, size=14, weight="bold")
+        self.normal_font = font.Font(family=self.ui_font_family, size=11)
+        self.small_font = font.Font(family=self.ui_font_family, size=9)
+        # Monospace for logs
+        self.mono_font = font.Font(family="Consolas" if "Consolas" in available else "Courier New", size=10)
+        # Update global default for StyledButton
+        global DEFAULT_BUTTON_FONT
+        DEFAULT_BUTTON_FONT = (self.ui_font_family, 10, "bold")
 
     def setup_styles(self):
         """Configure ttk styles for beautiful UI"""
@@ -1447,16 +1454,16 @@ class AIStreamerGUI:
 
         # Configure colors for all widgets
         style.configure('TLabel', background=COLORS['frame_bg'], foreground=COLORS['text'],
-                        font=('Comic Sans MS', 10))
-        style.configure('Title.TLabel', font=('Comic Sans MS', 14, 'bold'), foreground=COLORS['accent'])
+                        font=self.normal_font)
+        style.configure('Title.TLabel', font=self.header_font, foreground=COLORS['accent'])
         style.configure('TFrame', background=COLORS['frame_bg'], relief='flat', borderwidth=2)
         style.configure('Card.TFrame', background=COLORS['frame_bg'], relief='ridge', borderwidth=2)
         style.configure('TLabelframe', background=COLORS['frame_bg'], foreground=COLORS['accent'])
         style.configure('TLabelframe.Label', background=COLORS['frame_bg'], foreground=COLORS['accent'],
-                        font=('Comic Sans MS', 11, 'bold'))
+                        font=self.header_font)
         style.configure('TEntry', fieldbackground=COLORS['entry_bg'])
         style.configure('TCheckbutton', background=COLORS['frame_bg'], foreground=COLORS['text'],
-                        font=('Comic Sans MS', 10), focuscolor='none')
+                        font=self.normal_font, focuscolor='none')
         style.configure('TRadiobutton', background=COLORS['frame_bg'], foreground=COLORS['text'])
         style.configure('TSpinbox', fieldbackground=COLORS['entry_bg'])
         style.configure('TCombobox', fieldbackground=COLORS['entry_bg'])
@@ -1471,7 +1478,7 @@ class AIStreamerGUI:
         # Notebook styling
         style.configure('TNotebook', background=COLORS['bg'], borderwidth=0)
         style.configure('TNotebook.Tab', background=COLORS['frame_bg'], foreground=COLORS['text'],
-                        padding=[20, 10], font=('Comic Sans MS', 10))
+                        padding=[20, 10], font=self.normal_font)
         style.map('TNotebook.Tab', background=[('selected', COLORS['accent'])],
                   foreground=[('selected', 'white')])
 
@@ -2069,6 +2076,25 @@ class AIStreamerGUI:
                                                      font=self.small_font)
         self.prompt_text.pack(padx=10, pady=(0, 10))
         self.prompt_text.insert('1.0', self.config.get("system_prompt"))
+
+        # API-out / Quota Message Card
+        api_out_card = ttk.LabelFrame(settings_container, text="💸 API-out / Quota Message")
+        api_out_card.grid(row=6, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
+        ttk.Label(api_out_card, text="What should I say when OpenAI credits run out?").pack(anchor='w', padx=10,
+                                                                                            pady=(8, 2))
+        self.api_out_entry = ttk.Entry(api_out_card)
+        self.api_out_entry.pack(fill='x', padx=10)
+        self.api_out_entry.insert(0, self.config.get("api_out_message",
+                                                     "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"))
+        btn_row = ttk.Frame(api_out_card)
+        btn_row.pack(fill='x', padx=10, pady=(6, 10))
+        StyledButton(btn_row, text="▶️ Preview", command=lambda: self.message_queue.put(("tts_only", (
+                    self.api_out_entry.get() or "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"))),
+                     font=self.small_font).pack(side='left', padx=4)
+        StyledButton(btn_row, text="Reset to default",
+                     command=lambda: self.api_out_entry.delete(0, 'end') or self.api_out_entry.insert(0,
+                                                                                                      "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"),
+                     font=self.small_font, bg=COLORS['info']).pack(side='left', padx=4)
 
         # Save Button
         save_frame = ttk.Frame(settings_container)

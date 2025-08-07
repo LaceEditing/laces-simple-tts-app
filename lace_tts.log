@@ -31,3 +31,14 @@
 2025-08-07 16:52:43,623 - INFO - Found 33 audio devices
 2025-08-07 16:52:43,623 - INFO - Found 13 input devices and 20 output devices
 2025-08-07 16:52:43,777 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 17:14:58,765 - INFO - ElevenLabs new API detected
+2025-08-07 17:14:59,010 - INFO - Loaded idle image: idle.png
+2025-08-07 17:14:59,057 - INFO - Loaded speaking image: speaking.png
+2025-08-07 17:14:59,104 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 17:14:59,104 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 17:14:59,165 - INFO - Fetching ElevenLabs voices...
+2025-08-07 17:14:59,392 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 17:14:59,611 - INFO - OpenAI client initialized
+2025-08-07 17:15:00,552 - INFO - Found 33 audio devices
+2025-08-07 17:15:00,552 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 17:15:00,649 - INFO - Starting Lace's Simple TTS App v1.0.0
