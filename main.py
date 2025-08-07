@@ -1518,24 +1518,25 @@ class AIStreamerGUI:
         self.create_log_tab()
 
     def create_dashboard_tab(self):
-        """Create the main dashboard with cards layout"""
-        # Main container with grid
-        main_container = ttk.Frame(self.dashboard_frame)
-        main_container.pack(fill='both', expand=True, padx=20, pady=20)
+        """Create the main dashboard with a resizable two-pane layout"""
+        # Use a PanedWindow to allow the user to resize the avatar/status area and control area
+        paned = ttk.PanedWindow(self.dashboard_frame, orient='horizontal')
+        paned.pack(fill='both', expand=True, padx=20, pady=20)
 
-        # Left Column - Avatar and Status
-        left_frame = ttk.Frame(main_container, style='Card.TFrame')
-        left_frame.grid(row=0, column=0, sticky='nsew', padx=(0, 10))
+        # Left pane: Avatar and Status
+        left_frame = ttk.Frame(paned, style='Card.TFrame')
+        paned.add(left_frame, weight=1)
 
         # Avatar Section
         avatar_label = ttk.Label(left_frame, text="AI Avatar", style='Title.TLabel')
         avatar_label.pack(pady=10)
 
+        # The label that will display the avatar image
         self.avatar_label = tk.Label(left_frame, text="No image loaded",
                                      bg='white', relief='sunken', font=self.normal_font)
         self.avatar_label.pack(fill='both', expand=True, padx=20, pady=10)
 
-        # Status Section
+        # Status Section showing various indicators
         status_frame = ttk.LabelFrame(left_frame, text="Status")
         status_frame.pack(fill='x', padx=20, pady=10)
 
@@ -1546,166 +1547,139 @@ class AIStreamerGUI:
             ("Twitch", "💬", "Disconnected"),
             ("OBS", "📹", "Active")
         ]
-
         for name, icon, default in statuses:
-            frame = ttk.Frame(status_frame)
-            frame.pack(fill='x', padx=10, pady=5)
-
-            label = ttk.Label(frame, text=f"{icon} {name}:")
+            s_frame = ttk.Frame(status_frame)
+            s_frame.pack(fill='x', padx=10, pady=5)
+            label = ttk.Label(s_frame, text=f"{icon} {name}:")
             label.pack(side='left')
-
-            status_label = ttk.Label(frame, text=default, foreground=COLORS['success'])
+            status_label = ttk.Label(s_frame, text=default, foreground=COLORS['success'])
             status_label.pack(side='right')
             self.status_indicators[name] = status_label
 
-        # Right Column - Controls
-        right_frame = ttk.Frame(main_container, style='Card.TFrame')
-        right_frame.grid(row=0, column=1, sticky='nsew')
+        # Right pane: Controls
+        right_frame = ttk.Frame(paned, style='Card.TFrame')
+        paned.add(right_frame, weight=1)
 
         controls_label = ttk.Label(right_frame, text="Quick Controls", style='Title.TLabel')
         controls_label.pack(pady=10)
 
-        # Voice Control
+        # Voice Control section allows the user to see push‑to‑talk key and audio indicator
         voice_frame = ttk.LabelFrame(right_frame, text="Voice Input")
         voice_frame.pack(fill='x', padx=20, pady=10)
-
         self.ptt_label = ttk.Label(voice_frame,
                                    text=f"Hold [{self.config.get('push_to_talk_key', 'V').upper()}] to talk")
         self.ptt_label.pack(pady=10)
-
         self.voice_indicator = tk.Canvas(voice_frame, width=200, height=30,
                                          bg=COLORS['frame_bg'], highlightthickness=0)
         self.voice_indicator.pack(pady=5)
+        # Create a rectangle that will be resized to show microphone level
         self.voice_level = self.voice_indicator.create_rectangle(0, 5, 0, 25,
                                                                  fill=COLORS['success'], outline='')
 
-        # Auto Commentary
+        # Auto Commentary section
         auto_frame = ttk.LabelFrame(right_frame, text="Auto Commentary")
         auto_frame.pack(fill='x', padx=20, pady=10)
-
         self.auto_btn = StyledButton(auto_frame, text="Enable Auto Commentary",
                                      command=self.toggle_auto_commentary)
         self.auto_btn.pack(pady=10)
-
-        # Interval control
         interval_frame = ttk.Frame(auto_frame)
         interval_frame.pack(pady=5)
-
         ttk.Label(interval_frame, text="Interval (seconds):").pack(side='left', padx=5)
         self.interval_spinbox = ttk.Spinbox(interval_frame, from_=5, to=300, width=10)
         self.interval_spinbox.pack(side='left', padx=5)
         self.interval_spinbox.set(self.config.get("commentary_interval", 15))
-
-        # Save interval button
+        # Button to save interval change
         StyledButton(interval_frame, text="Update",
                      command=self.update_commentary_interval,
                      font=self.small_font, padx=10, pady=5).pack(side='left', padx=5)
-
         self.auto_status = ttk.Label(auto_frame, text="Status: Disabled")
         self.auto_status.pack(pady=5)
 
-        # Quick Actions
+        # Quick Actions allow the user to test features quickly
         actions_frame = ttk.LabelFrame(right_frame, text="Quick Actions")
         actions_frame.pack(fill='x', padx=20, pady=10)
-
+        # Row of buttons for test actions
         button_frame = ttk.Frame(actions_frame)
         button_frame.pack(pady=10)
-
         StyledButton(button_frame, text="📸 Test Screen",
                      command=self.test_screen_capture, width=15).pack(side='left', padx=5)
         StyledButton(button_frame, text="🔊 Test Voice",
                      command=self.test_speech, width=15).pack(side='left', padx=5)
-
         button_frame2 = ttk.Frame(actions_frame)
         button_frame2.pack(pady=5)
-
         StyledButton(button_frame2, text="🎤 Test Mic",
                      command=self.test_microphone, width=15).pack(side='left', padx=5)
         StyledButton(button_frame2, text="🗑️ Clear History",
                      command=self.clear_conversation_history, width=15,
                      bg=COLORS['error']).pack(side='left', padx=5)
 
-        # Configure grid weights
-        main_container.columnconfigure(0, weight=1)
-        main_container.columnconfigure(1, weight=1)
-        main_container.rowconfigure(0, weight=1)
-
-        # Load images
+        # Load images for the avatar once the UI is built
         self.load_avatar_images()
 
     def create_twitch_tab(self):
         """Create dedicated Twitch tab with connection and messages"""
-        # Connection Section
-        connection_frame = ttk.LabelFrame(self.twitch_frame, text="Twitch Connection")
-        connection_frame.pack(fill='x', padx=20, pady=10)
+        # Use a PanedWindow to separate chat display and settings
+        paned = ttk.PanedWindow(self.twitch_frame, orient='vertical')
+        paned.pack(fill='both', expand=True)
 
-        # Connection info
+        # Top pane: connection info and chat display
+        top_pane = ttk.Frame(paned)
+        paned.add(top_pane, weight=3)
+        # Bottom pane: response settings
+        bottom_pane = ttk.Frame(paned)
+        paned.add(bottom_pane, weight=1)
+
+        # Connection Section in top pane
+        connection_frame = ttk.LabelFrame(top_pane, text="Twitch Connection")
+        connection_frame.pack(fill='x', padx=20, pady=10)
         info_frame = ttk.Frame(connection_frame)
         info_frame.pack(fill='x', padx=10, pady=10)
-
         ttk.Label(info_frame, text="📌 Quick Setup:", font=self.header_font).pack(anchor='w')
         ttk.Label(info_frame, text="1. Enter your Twitch username", font=self.small_font).pack(anchor='w', padx=20)
         ttk.Label(info_frame, text="2. Get OAuth from: https://twitchapps.com/tmi/",
                   font=self.small_font, foreground=COLORS['info']).pack(anchor='w', padx=20)
         ttk.Label(info_frame, text="3. Enter channel name (without #)", font=self.small_font).pack(anchor='w', padx=20)
         ttk.Label(info_frame, text="4. Click Connect!", font=self.small_font).pack(anchor='w', padx=20)
-
-        # Connection controls
         control_frame = ttk.Frame(connection_frame)
         control_frame.pack(pady=10)
-
         self.twitch_connect_btn = StyledButton(control_frame, text="🔌 Connect to Twitch",
                                                command=self.toggle_twitch_connection,
                                                bg=COLORS['twitch'])
         self.twitch_connect_btn.pack(side='left', padx=5)
-
         self.twitch_connection_status = ttk.Label(control_frame, text="Not connected",
                                                   foreground=COLORS['text'])
         self.twitch_connection_status.pack(side='left', padx=20)
 
-        # Twitch Messages Display
-        messages_frame = ttk.LabelFrame(self.twitch_frame, text="Twitch Chat Messages")
+        # Chat display in top pane
+        messages_frame = ttk.LabelFrame(top_pane, text="Twitch Chat Messages")
         messages_frame.pack(fill='both', expand=True, padx=20, pady=10)
-
-        # Create twitch chat display
         self.twitch_chat_display = scrolledtext.ScrolledText(messages_frame, height=15, width=80,
                                                              bg='#1C1C2E', fg='white',
                                                              font=('Consolas', 10),
                                                              wrap=tk.WORD)
         self.twitch_chat_display.pack(fill='both', expand=True, padx=10, pady=10)
-
-        # Configure tags for different message types
         self.twitch_chat_display.tag_config('system', foreground='#FFD700', font=('Consolas', 10, 'italic'))
         self.twitch_chat_display.tag_config('username', foreground=COLORS['twitch'], font=('Consolas', 10, 'bold'))
         self.twitch_chat_display.tag_config('message', foreground='white')
         self.twitch_chat_display.tag_config('timestamp', foreground='#888888', font=('Consolas', 9))
 
-        # Response Settings
-        response_frame = ttk.LabelFrame(self.twitch_frame, text="TTS Settings for Twitch Chat")
-        response_frame.pack(fill='x', padx=20, pady=10)
-
+        # Response Settings in bottom pane
+        response_frame = ttk.LabelFrame(bottom_pane, text="TTS Settings for Twitch Chat")
+        response_frame.pack(fill='both', expand=True, padx=20, pady=10)
         settings_grid = ttk.Frame(response_frame)
         settings_grid.pack(padx=10, pady=10)
-
-        # Reading options
         ttk.Label(settings_grid, text="📖 Reading Options:", font=self.header_font).grid(row=0, column=0, columnspan=2,
                                                                                         sticky='w', pady=(5, 10))
-
         ttk.Checkbutton(settings_grid, text="Read username before message",
                         variable=self.read_username_var).grid(row=1, column=0, columnspan=2, sticky='w', padx=20,
                                                               pady=2)
-
         ttk.Checkbutton(settings_grid, text="Read the message content",
                         variable=self.read_message_var).grid(row=2, column=0, columnspan=2, sticky='w', padx=20, pady=2)
-
         ttk.Checkbutton(settings_grid, text="Generate AI response after reading",
                         variable=self.ai_response_var).grid(row=3, column=0, columnspan=2, sticky='w', padx=20, pady=2)
-
-        # AI Response Settings
         ttk.Label(settings_grid, text="🤖 AI Response Settings:", font=self.header_font).grid(row=4, column=0,
                                                                                              columnspan=2, sticky='w',
                                                                                              pady=(15, 10))
-
         ttk.Label(settings_grid, text="Response chance (%):", font=self.small_font).grid(row=5, column=0, sticky='w',
                                                                                          padx=20, pady=5)
         response_scale = ttk.Scale(settings_grid, from_=0, to=100, orient='horizontal',
@@ -1713,10 +1687,7 @@ class AIStreamerGUI:
         response_scale.grid(row=5, column=1, pady=5)
         self.response_chance_label = ttk.Label(settings_grid, text=f"{self.response_chance_var.get()}%")
         self.response_chance_label.grid(row=5, column=2, padx=10)
-
-        # Update label when scale moves
         response_scale.configure(command=lambda v: self.response_chance_label.config(text=f"{int(float(v))}%"))
-
         ttk.Label(settings_grid, text="Cooldown (seconds):", font=self.small_font).grid(row=6, column=0, sticky='w',
                                                                                         padx=20, pady=5)
         self.cooldown_spinbox = ttk.Spinbox(settings_grid, from_=1, to=60, width=10)
@@ -1724,32 +1695,28 @@ class AIStreamerGUI:
         self.cooldown_spinbox.set(self.config.get("twitch_cooldown", 5))
 
     def create_settings_tab(self):
-        """Create organized settings with ALL original options"""
-        # Create scrollable container
-        canvas = tk.Canvas(self.settings_frame, bg=COLORS['frame_bg'])
-        scrollbar = ttk.Scrollbar(self.settings_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        """Create organized settings with ALL original options.
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        This version restructures the settings layout into multiple
+        tabs using a `ttk.Notebook` to make navigating the many options
+        easier. Each card is preserved but placed into a logical tab so
+        that scrolling is minimized and the UI feels more modern. Nothing
+        from the original settings has been removed."""
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        # Create a notebook to separate categories
+        notebook = ttk.Notebook(self.settings_frame)
+        notebook.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # Settings Grid Layout
-        settings_container = ttk.Frame(scrollable_frame)
-        settings_container.pack(fill='both', expand=True, padx=20, pady=20)
+        # GENERAL TAB -------------------------------------------------------
+        general_tab = ttk.Frame(notebook)
+        notebook.add(general_tab, text="📝 General")
 
-        # Quick Setup Instructions Card
-        setup_card = ttk.LabelFrame(settings_container, text="📚 Quick Setup Guide")
-        setup_card.grid(row=0, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
-
-        setup_text = tk.Text(setup_card, height=8, width=80, wrap='word',
+        # Quick Setup Guide
+        setup_card = ttk.LabelFrame(general_tab, text="📚 Quick Setup Guide")
+        setup_card.pack(fill='x', padx=5, pady=5)
+        setup_text = tk.Text(setup_card, height=8, wrap='word',
                              bg=COLORS['entry_bg'], fg=COLORS['text'], font=self.small_font)
-        setup_text.pack(padx=10, pady=10)
-
+        setup_text.pack(fill='both', expand=True, padx=10, pady=10)
         setup_instructions = """🤖 OpenAI Setup:
 • Go to platform.openai.com/api-keys → Create API key → Paste below
 
@@ -1760,20 +1727,16 @@ class AIStreamerGUI:
 
 🎤 Voice: Hold V key to talk → Release to get AI response (uses local Whisper)
 📹 OBS: Add Image Source → Point to 'current_avatar.png' → Check 'Unload when not showing'"""
-
         setup_text.insert('1.0', setup_instructions)
         setup_text.config(state='disabled')
 
         # API Keys Card
-        api_card = ttk.LabelFrame(settings_container, text="🔑 API Keys")
-        api_card.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
-
-        # OpenAI
+        api_card = ttk.LabelFrame(general_tab, text="🔑 API Keys")
+        api_card.pack(fill='x', padx=5, pady=5)
         ttk.Label(api_card, text="OpenAI API Key:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
         self.openai_entry = ttk.Entry(api_card, width=40, show='*')
         self.openai_entry.grid(row=0, column=1, padx=5, pady=5)
         self.openai_entry.insert(0, self.config.get("openai_api_key"))
-
         ttk.Label(api_card, text="Model:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
         self.model_var = tk.StringVar(value=self.config.get("openai_model", "gpt-4o-mini"))
         model_combo = ttk.Combobox(api_card, textvariable=self.model_var, width=20,
@@ -1785,44 +1748,81 @@ class AIStreamerGUI:
         self.elevenlabs_entry = ttk.Entry(api_card, width=40, show='*')
         self.elevenlabs_entry.grid(row=2, column=1, padx=5, pady=5)
         self.elevenlabs_entry.insert(0, self.config.get("elevenlabs_api_key", ""))
-
         # Azure API
         ttk.Label(api_card, text="Azure TTS Key:").grid(row=3, column=0, sticky='w', padx=10, pady=5)
         self.azure_entry = ttk.Entry(api_card, width=40, show='*')
         self.azure_entry.grid(row=3, column=1, padx=5, pady=5)
         self.azure_entry.insert(0, self.config.get("azure_tts_key", ""))
-
         ttk.Label(api_card, text="Azure Region:").grid(row=4, column=0, sticky='w', padx=10, pady=5)
         self.azure_region_entry = ttk.Entry(api_card, width=20)
         self.azure_region_entry.grid(row=4, column=1, sticky='w', padx=5, pady=5)
         self.azure_region_entry.insert(0, self.config.get("azure_tts_region", "eastus"))
 
-        # Voice Settings Card
-        voice_card = ttk.LabelFrame(settings_container, text="🎤 Voice Settings")
-        voice_card.grid(row=1, column=1, sticky='ew', padx=5, pady=5)
+        # System Prompt Card
+        prompt_card = ttk.LabelFrame(general_tab, text="💭 AI Personality & Instructions")
+        prompt_card.pack(fill='x', padx=5, pady=5)
+        prompt_info = ttk.Label(prompt_card, text="Define how the AI should behave and respond:",
+                                font=self.small_font, foreground=COLORS['info'])
+        prompt_info.pack(anchor='w', padx=10, pady=(10, 5))
+        self.prompt_text = scrolledtext.ScrolledText(prompt_card, height=6,
+                                                     bg=COLORS['entry_bg'], fg=COLORS['text'],
+                                                     font=self.small_font, wrap=tk.WORD)
+        self.prompt_text.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+        self.prompt_text.insert('1.0', self.config.get("system_prompt"))
 
+        # API-out / Quota Message Card
+        api_out_card = ttk.LabelFrame(general_tab, text="💸 API-out / Quota Message")
+        api_out_card.pack(fill='x', padx=5, pady=5)
+        ttk.Label(api_out_card, text="What should I say when OpenAI credits run out?").pack(anchor='w', padx=10,
+                                                                                            pady=(8, 2))
+        self.api_out_entry = ttk.Entry(api_out_card)
+        self.api_out_entry.pack(fill='x', padx=10)
+        self.api_out_entry.insert(0, self.config.get("api_out_message",
+                                                     "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"))
+        btn_row = ttk.Frame(api_out_card)
+        btn_row.pack(anchor='w', padx=10, pady=(6, 10))
+        StyledButton(btn_row, text="▶️ Preview",
+                     command=lambda: self.message_queue.put(("tts_only", (
+                         self.api_out_entry.get() or "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"))),
+                     font=self.small_font).pack(side='left', padx=4)
+        StyledButton(btn_row, text="Reset to default",
+                     command=lambda: self.api_out_entry.delete(0, 'end') or self.api_out_entry.insert(0,
+                                                                                                      "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"),
+                     font=self.small_font, bg=COLORS['info']).pack(side='left', padx=4)
+
+        # Save Button (placed in general tab for convenience)
+        save_frame = ttk.Frame(general_tab)
+        save_frame.pack(pady=20)
+        StyledButton(save_frame, text="💾 Save All Settings",
+                     command=self.save_settings, bg=COLORS['success']).pack()
+
+        # VOICE & AUDIO TAB -----------------------------------------------
+        voice_tab = ttk.Frame(notebook)
+        notebook.add(voice_tab, text="🎤 Voice & Audio")
+
+        # Create a container frame to hold voice and audio side by side
+        voice_audio_container = ttk.Frame(voice_tab)
+        voice_audio_container.pack(fill='x', padx=5, pady=5)
+
+        # Voice Settings Card
+        voice_card = ttk.LabelFrame(voice_audio_container, text="🎤 Voice Settings")
+        voice_card.pack(side='left', fill='both', expand=True, padx=(0, 5))
         ttk.Label(voice_card, text="Voice Provider:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
         self.voice_provider_var = tk.StringVar(value=self.config.get("voice_provider", "streamelements"))
-        self.voice_provider_combo = ttk.Combobox(voice_card, textvariable=self.voice_provider_var, width=20,
-                                                 state='readonly')
-        self.voice_provider_combo.grid(row=0, column=1, padx=5, pady=5)
-
+        self.voice_provider_combo = ttk.Combobox(voice_card, textvariable=self.voice_provider_var,
+                                                 width=20, state='readonly')
+        self.voice_provider_combo.grid(row=0, column=1, padx=5, pady=5, sticky='w')
         ttk.Label(voice_card, text="Voice:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
         self.voice_name_var = tk.StringVar(value=self.config.get("voice_name", "Brian"))
         self.voice_name_combo = ttk.Combobox(voice_card, textvariable=self.voice_name_var, width=20,
                                              state='readonly')
-        self.voice_name_combo.grid(row=1, column=1, padx=5, pady=5)
+        self.voice_name_combo.grid(row=1, column=1, padx=5, pady=5, sticky='w')
 
         # Populate voice providers
-        provider_names = []
-        for provider_id, provider_info in VOICE_OPTIONS.items():
-            provider_names.append(provider_id)
+        provider_names = list(VOICE_OPTIONS.keys())
         self.voice_provider_combo['values'] = provider_names
-
-        # Bind provider change event
+        # Bind provider change event and initialize names
         self.voice_provider_combo.bind('<<ComboboxSelected>>', self.on_voice_provider_changed)
-
-        # Initialize voice names for current provider
         self.on_voice_provider_changed(None)
 
         ttk.Label(voice_card, text="Push-to-Talk Key:").grid(row=2, column=0, sticky='w', padx=10, pady=5)
@@ -1830,10 +1830,8 @@ class AIStreamerGUI:
         self.ptt_key_entry.grid(row=2, column=1, sticky='w', padx=5, pady=5)
         self.ptt_key_entry.insert(0, self.config.get("push_to_talk_key", "v"))
 
-        # Microphone sensitivity
         ttk.Label(voice_card, text="Mic Sensitivity:", font=self.header_font).grid(row=3, column=0, columnspan=2,
                                                                                    sticky='w', pady=(10, 5))
-
         ttk.Label(voice_card, text="Threshold:").grid(row=4, column=0, sticky='w', padx=10, pady=5)
         self.mic_sensitivity_var = tk.IntVar(value=self.config.get("mic_energy_threshold", 500))
         sensitivity_scale = ttk.Scale(voice_card, from_=100, to=4000, orient='horizontal',
@@ -1841,27 +1839,19 @@ class AIStreamerGUI:
         sensitivity_scale.grid(row=4, column=1, sticky='w', pady=5)
         self.sensitivity_label = ttk.Label(voice_card, text=f"{self.mic_sensitivity_var.get()}")
         self.sensitivity_label.grid(row=4, column=2, padx=5)
-
-        # Update sensitivity label
         sensitivity_scale.configure(command=lambda v: self.sensitivity_label.config(text=f"{int(float(v))}"))
+        ttk.Label(voice_card, text="(Lower = more sensitive)", font=self.small_font,
+                  foreground=COLORS['info']).grid(row=5, column=0, columnspan=2, sticky='w', padx=20)
 
-        ttk.Label(voice_card, text="(Lower = more sensitive)", font=self.small_font, foreground=COLORS['info']).grid(
-            row=5, column=0, columnspan=2, sticky='w', padx=20)
-
-        # Voice options
         ttk.Label(voice_card, text="Voice Input Options:", font=self.header_font).grid(row=6, column=0, columnspan=2,
                                                                                        sticky='w', pady=(10, 5))
-
         self.voice_capture_screen_var = tk.BooleanVar(value=self.config.get("voice_capture_screen", False))
         ttk.Checkbutton(voice_card, text="Include screen capture with voice",
-                        variable=self.voice_capture_screen_var).grid(row=7, column=0, columnspan=2, sticky='w', padx=20,
-                                                                     pady=2)
+                        variable=self.voice_capture_screen_var).grid(row=7, column=0, columnspan=2,
+                                                                     sticky='w', padx=20, pady=2)
 
-        # Speech Recognition Settings
         ttk.Label(voice_card, text="Speech Recognition:", font=self.header_font).grid(
             row=8, column=0, columnspan=2, sticky='w', pady=(15, 5))
-
-        # Whisper model size
         ttk.Label(voice_card, text="Whisper model:").grid(row=9, column=0, sticky='w', padx=10, pady=5)
         self.whisper_model_var = tk.StringVar(value=self.config.get("whisper_model_size", "tiny"))
         whisper_model_combo = ttk.Combobox(voice_card, textvariable=self.whisper_model_var,
@@ -1869,111 +1859,92 @@ class AIStreamerGUI:
                                            values=["tiny", "base", "small", "medium", "large"])
         whisper_model_combo.grid(row=9, column=1, sticky='w', padx=5, pady=5)
 
-        # Noise reduction option
         self.noise_reduction_var = tk.BooleanVar(value=self.config.get("noise_reduction", True))
         ttk.Checkbutton(voice_card, text="Apply noise reduction",
                         variable=self.noise_reduction_var).grid(row=10, column=0, columnspan=2,
                                                                 sticky='w', padx=20, pady=2)
-
-        # Audio normalization option
         self.normalize_audio_var = tk.BooleanVar(value=self.config.get("normalize_audio", True))
         ttk.Checkbutton(voice_card, text="Normalize audio levels",
                         variable=self.normalize_audio_var).grid(row=11, column=0, columnspan=2,
                                                                 sticky='w', padx=20, pady=2)
 
-        # Button frame for voice actions
         voice_button_frame = ttk.Frame(voice_card)
         voice_button_frame.grid(row=12, column=0, columnspan=3, pady=10)
-
         StyledButton(voice_button_frame, text="🔊 Test Voice",
                      command=self.test_current_voice,
                      font=self.small_font).pack(side='left', padx=5)
-
         StyledButton(voice_button_frame, text="🔄 Refresh Voices",
                      command=self.refresh_voice_list,
                      font=self.small_font, bg=COLORS['info']).pack(side='left', padx=5)
 
-        # Audio Device Settings Card
-        audio_card = ttk.LabelFrame(settings_container, text="🔊 Audio Devices")
-        audio_card.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
-
-        # Get available devices
+        # Audio Devices Card
+        audio_card = ttk.LabelFrame(voice_audio_container, text="🔊 Audio Devices")
+        audio_card.pack(side='left', fill='both', expand=True, padx=(5, 0))
         input_devices, output_devices = AudioDeviceManager.get_audio_devices()
-
-        # Input device selection
         ttk.Label(audio_card, text="Microphone:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
         self.input_device_var = tk.StringVar(value="Default")
         input_device_names = ["Default"] + [d['name'] for d in input_devices]
         input_combo = ttk.Combobox(audio_card, textvariable=self.input_device_var, width=30,
                                    values=input_device_names, state='readonly')
         input_combo.grid(row=0, column=1, padx=5, pady=5)
-
-        # Set current selection
         current_input = self.config.get("input_device_index", -1)
-        if current_input >= 0 and current_input < len(input_devices):
+        if 0 <= current_input < len(input_devices):
             input_combo.set(input_devices[current_input]['name'])
-
-        # Output device selection
         ttk.Label(audio_card, text="Speakers:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
         self.output_device_var = tk.StringVar(value="Default")
         output_device_names = ["Default"] + [d['name'] for d in output_devices]
         output_combo = ttk.Combobox(audio_card, textvariable=self.output_device_var, width=30,
                                     values=output_device_names, state='readonly')
         output_combo.grid(row=1, column=1, padx=5, pady=5)
-
-        # Set current selection
         current_output = self.config.get("output_device_index", -1)
-        if current_output >= 0 and current_output < len(output_devices):
+        if 0 <= current_output < len(output_devices):
             output_combo.set(output_devices[current_output]['name'])
-
-        # Store device lists for saving
         self.input_devices = input_devices
         self.output_devices = output_devices
 
-        # Twitch Settings Card
-        twitch_card = ttk.LabelFrame(settings_container, text="💬 Twitch Settings")
-        twitch_card.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
+        # TWITCH TAB -------------------------------------------------------
+        twitch_tab = ttk.Frame(notebook)
+        notebook.add(twitch_tab, text="💬 Twitch")
 
+        twitch_card = ttk.LabelFrame(twitch_tab, text="💬 Twitch Settings")
+        twitch_card.pack(fill='x', padx=5, pady=5)
         ttk.Label(twitch_card, text="Username:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
         self.twitch_username_entry = ttk.Entry(twitch_card, width=30)
         self.twitch_username_entry.grid(row=0, column=1, padx=5, pady=5)
         self.twitch_username_entry.insert(0, self.config.get("twitch_username"))
-
         ttk.Label(twitch_card, text="OAuth Token:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
         self.twitch_oauth_entry = ttk.Entry(twitch_card, width=30, show='*')
         self.twitch_oauth_entry.grid(row=1, column=1, padx=5, pady=5)
         self.twitch_oauth_entry.insert(0, self.config.get("twitch_oauth"))
-
         ttk.Label(twitch_card, text="Channel:").grid(row=2, column=0, sticky='w', padx=10, pady=5)
         self.twitch_channel_entry = ttk.Entry(twitch_card, width=30)
         self.twitch_channel_entry.grid(row=2, column=1, padx=5, pady=5)
         self.twitch_channel_entry.insert(0, self.config.get("twitch_channel"))
 
-        # Avatar Settings Card
-        avatar_card = ttk.LabelFrame(settings_container, text="🎭 Avatar Images")
-        avatar_card.grid(row=2, column=1, rowspan=2, sticky='ew', padx=5, pady=5)
+        # AVATAR TAB -------------------------------------------------------
+        avatar_tab = ttk.Frame(notebook)
+        notebook.add(avatar_tab, text="🎭 Avatar")
 
+        avatar_card = ttk.LabelFrame(avatar_tab, text="🎭 Avatar Images")
+        avatar_card.pack(fill='x', padx=5, pady=5)
         ttk.Label(avatar_card, text="Idle Image:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
         self.idle_path_label = ttk.Label(avatar_card, text=os.path.basename(self.config.get("idle_image", "")))
         self.idle_path_label.grid(row=0, column=1, padx=5, pady=5)
-        StyledButton(avatar_card, text="Browse", command=lambda: self.browse_image("idle"),
+        StyledButton(avatar_card, text="Browse",
+                     command=lambda: self.browse_image("idle"),
                      bg=COLORS['info'], font=self.small_font).grid(row=0, column=2, padx=5, pady=5)
-
         ttk.Label(avatar_card, text="Speaking Image:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
         self.speaking_path_label = ttk.Label(avatar_card, text=os.path.basename(self.config.get("speaking_image", "")))
         self.speaking_path_label.grid(row=1, column=1, padx=5, pady=5)
-        StyledButton(avatar_card, text="Browse", command=lambda: self.browse_image("speaking"),
+        StyledButton(avatar_card, text="Browse",
+                     command=lambda: self.browse_image("speaking"),
                      bg=COLORS['info'], font=self.small_font).grid(row=1, column=2, padx=5, pady=5)
-
-        # Animation Settings
         ttk.Label(avatar_card, text="Animation:", font=self.header_font).grid(row=2, column=0, columnspan=3,
                                                                               sticky='w', pady=(10, 5))
-
         self.enable_animations_var = tk.BooleanVar(value=self.config.get("enable_animations", True))
         ttk.Checkbutton(avatar_card, text="Enable smooth transitions",
                         variable=self.enable_animations_var).grid(row=3, column=0, columnspan=3,
                                                                   sticky='w', padx=20, pady=2)
-
         ttk.Label(avatar_card, text="Animation speed:").grid(row=4, column=0, sticky='w', padx=10, pady=5)
         self.animation_speed_var = tk.DoubleVar(value=self.config.get("animation_speed", 0.3))
         animation_scale = ttk.Scale(avatar_card, from_=0.1, to=1.0, orient='horizontal',
@@ -1981,30 +1952,26 @@ class AIStreamerGUI:
         animation_scale.grid(row=4, column=1, sticky='w', pady=5)
         self.animation_label = ttk.Label(avatar_card, text=f"{self.animation_speed_var.get():.1f}s")
         self.animation_label.grid(row=4, column=2, padx=5)
-
         animation_scale.configure(command=lambda v: self.animation_label.config(text=f"{float(v):.1f}s"))
 
-        # AI Configuration Card
-        ai_config_card = ttk.LabelFrame(settings_container, text="🧠 AI Configuration")
-        ai_config_card.grid(row=4, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
+        # AI TAB -----------------------------------------------------------
+        ai_tab = ttk.Frame(notebook)
+        notebook.add(ai_tab, text="🧠 AI")
 
-        # AI settings grid
+        ai_config_card = ttk.LabelFrame(ai_tab, text="🧠 AI Configuration")
+        ai_config_card.pack(fill='x', padx=5, pady=5)
+
         ai_grid = ttk.Frame(ai_config_card)
         ai_grid.pack(padx=10, pady=10)
-
-        # Memory settings
         ttk.Label(ai_grid, text="Message History:", font=self.header_font).grid(row=0, column=0, columnspan=2,
                                                                                 sticky='w', pady=(0, 10))
-
         ttk.Label(ai_grid, text="Max messages to remember:").grid(row=1, column=0, sticky='w', padx=20, pady=5)
         self.memory_spinbox = ttk.Spinbox(ai_grid, from_=5, to=100, width=10)
         self.memory_spinbox.grid(row=1, column=1, sticky='w', pady=5)
         self.memory_spinbox.set(self.config.get("ai_memory_messages", 20))
 
-        # Response settings
         ttk.Label(ai_grid, text="Response Settings:", font=self.header_font).grid(row=2, column=0, columnspan=2,
                                                                                   sticky='w', pady=(15, 10))
-
         ttk.Label(ai_grid, text="Max response length (tokens):").grid(row=3, column=0, sticky='w', padx=20, pady=5)
         self.tokens_spinbox = ttk.Spinbox(ai_grid, from_=50, to=500, width=10)
         self.tokens_spinbox.grid(row=3, column=1, sticky='w', pady=5)
@@ -2018,31 +1985,27 @@ class AIStreamerGUI:
         temp_scale.grid(row=4, column=1, sticky='w', pady=5)
         self.temp_label = ttk.Label(ai_grid, text=f"{self.temperature_var.get():.1f}")
         self.temp_label.grid(row=4, column=2, padx=10)
-
-        # Update temperature label
         temp_scale.configure(command=lambda v: self.temp_label.config(text=f"{float(v):.1f}"))
 
-        # Conversation history option
         self.save_history_var = tk.BooleanVar(value=self.config.get("save_conversation_history", True))
         ttk.Checkbutton(ai_grid, text="Save conversation history to file",
-                        variable=self.save_history_var).grid(row=5, column=0, columnspan=2, sticky='w', pady=10)
+                        variable=self.save_history_var).grid(row=5, column=0, columnspan=2,
+                                                             sticky='w', pady=10)
 
-        # Performance Settings
         ttk.Label(ai_grid, text="Performance:", font=self.header_font).grid(row=6, column=0, columnspan=2,
                                                                             sticky='w', pady=(15, 10))
-
         self.performance_mode_var = tk.BooleanVar(value=self.config.get("performance_mode", False))
         ttk.Checkbutton(ai_grid, text="Performance Mode (faster but lower quality)",
-                        variable=self.performance_mode_var).grid(row=7, column=0, columnspan=2, sticky='w', padx=20)
+                        variable=self.performance_mode_var).grid(row=7, column=0, columnspan=2,
+                                                                 sticky='w', padx=20)
 
         self.tts_cache_var = tk.BooleanVar(value=self.config.get("tts_cache_enabled", True))
         ttk.Checkbutton(ai_grid, text="Cache TTS audio (speeds up repeated phrases)",
-                        variable=self.tts_cache_var).grid(row=8, column=0, columnspan=2, sticky='w', padx=20)
+                        variable=self.tts_cache_var).grid(row=8, column=0, columnspan=2,
+                                                          sticky='w', padx=20)
 
-        # ElevenLabs Settings (if using)
         elevenlabs_frame = ttk.LabelFrame(ai_grid, text="ElevenLabs Voice Settings")
         elevenlabs_frame.grid(row=9, column=0, columnspan=3, sticky='ew', pady=(15, 10))
-
         ttk.Label(elevenlabs_frame, text="Stability:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
         self.stability_var = tk.DoubleVar(value=self.config.get("elevenlabs_stability", 0.5))
         stability_scale = ttk.Scale(elevenlabs_frame, from_=0, to=1, orient='horizontal',
@@ -2050,7 +2013,6 @@ class AIStreamerGUI:
         stability_scale.grid(row=0, column=1, pady=5)
         self.stability_label = ttk.Label(elevenlabs_frame, text=f"{self.stability_var.get():.2f}")
         self.stability_label.grid(row=0, column=2, padx=10)
-
         stability_scale.configure(command=lambda v: self.stability_label.config(text=f"{float(v):.2f}"))
 
         ttk.Label(elevenlabs_frame, text="Similarity:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
@@ -2060,77 +2022,33 @@ class AIStreamerGUI:
         similarity_scale.grid(row=1, column=1, pady=5)
         self.similarity_label = ttk.Label(elevenlabs_frame, text=f"{self.similarity_var.get():.2f}")
         self.similarity_label.grid(row=1, column=2, padx=10)
-
         similarity_scale.configure(command=lambda v: self.similarity_label.config(text=f"{float(v):.2f}"))
 
-        # System Prompt Card
-        prompt_card = ttk.LabelFrame(settings_container, text="💭 AI Personality & Instructions")
-        prompt_card.grid(row=5, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
-
-        prompt_info = ttk.Label(prompt_card, text="Define how the AI should behave and respond:",
-                                font=self.small_font, foreground=COLORS['info'])
-        prompt_info.pack(padx=10, pady=(10, 5))
-
-        self.prompt_text = scrolledtext.ScrolledText(prompt_card, height=6, width=60,
-                                                     bg=COLORS['entry_bg'], fg=COLORS['text'],
-                                                     font=self.small_font)
-        self.prompt_text.pack(padx=10, pady=(0, 10))
-        self.prompt_text.insert('1.0', self.config.get("system_prompt"))
-
-        # API-out / Quota Message Card
-        api_out_card = ttk.LabelFrame(settings_container, text="💸 API-out / Quota Message")
-        api_out_card.grid(row=6, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
-        ttk.Label(api_out_card, text="What should I say when OpenAI credits run out?").pack(anchor='w', padx=10,
-                                                                                            pady=(8, 2))
-        self.api_out_entry = ttk.Entry(api_out_card)
-        self.api_out_entry.pack(fill='x', padx=10)
-        self.api_out_entry.insert(0, self.config.get("api_out_message",
-                                                     "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"))
-        btn_row = ttk.Frame(api_out_card)
-        btn_row.pack(fill='x', padx=10, pady=(6, 10))
-        StyledButton(btn_row, text="▶️ Preview", command=lambda: self.message_queue.put(("tts_only", (
-                    self.api_out_entry.get() or "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"))),
-                     font=self.small_font).pack(side='left', padx=4)
-        StyledButton(btn_row, text="Reset to default",
-                     command=lambda: self.api_out_entry.delete(0, 'end') or self.api_out_entry.insert(0,
-                                                                                                      "Uh oh! My brain-juice (API credits) ran out. I’ll be back as soon as you refill me! ✨💜"),
-                     font=self.small_font, bg=COLORS['info']).pack(side='left', padx=4)
-
-        # Save Button
-        save_frame = ttk.Frame(settings_container)
-        save_frame.grid(row=6, column=0, columnspan=2, pady=20)
-
-        StyledButton(save_frame, text="💾 Save All Settings",
-                     command=self.save_settings, bg=COLORS['success']).pack()
-
-        # Configure grid
-        settings_container.columnconfigure(0, weight=1)
-        settings_container.columnconfigure(1, weight=1)
-
-        # Pack canvas and scrollbar
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
     def create_log_tab(self):
-        """Create the chat/log tab with better styling"""
-        # Chat display with custom colors
-        chat_frame = ttk.LabelFrame(self.log_frame, text="System Logs")
-        chat_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        """Create the chat/log tab with resizable log and input sections"""
+        # Use a vertical PanedWindow so that the log display and input area can be resized
+        paned = ttk.PanedWindow(self.log_frame, orient='vertical')
+        paned.pack(fill='both', expand=True, padx=20, pady=10)
 
-        self.chat_text = scrolledtext.ScrolledText(chat_frame, height=20, width=80,
+        # Upper pane: chat log display wrapped in a LabelFrame for context
+        chat_frame = ttk.LabelFrame(paned, text="System Logs")
+        paned.add(chat_frame, weight=4)
+        self.chat_text = scrolledtext.ScrolledText(chat_frame, height=15, width=80,
                                                    bg='#2C3E50', fg='white',
                                                    font=('Consolas', 10),
                                                    insertbackground='white')
         self.chat_text.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # Input frame
-        input_frame = ttk.Frame(self.log_frame)
-        input_frame.pack(fill='x', padx=20, pady=10)
-
+        # Lower pane: input area with entry and buttons
+        input_container = ttk.Frame(paned)
+        paned.add(input_container, weight=1)
+        input_frame = ttk.Frame(input_container)
+        input_frame.pack(fill='x', padx=0, pady=0)
+        # Entry for user to type log messages
         self.chat_entry = ttk.Entry(input_frame, font=self.normal_font)
         self.chat_entry.pack(side='left', fill='x', expand=True, padx=(0, 10))
         self.chat_entry.bind('<Return>', lambda e: self.send_chat_message())
-
+        # Send and clear buttons
         StyledButton(input_frame, text="Send", command=self.send_chat_message).pack(side='left', padx=5)
         StyledButton(input_frame, text="Clear", command=self.clear_log,
                      bg=COLORS['error']).pack(side='left')

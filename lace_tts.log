@@ -104,3 +104,44 @@
 2025-08-07 17:44:47,785 - INFO - Found 33 audio devices
 2025-08-07 17:44:47,785 - INFO - Found 13 input devices and 20 output devices
 2025-08-07 17:44:47,890 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 17:52:52,841 - INFO - ElevenLabs new API detected
+2025-08-07 17:52:53,763 - INFO - Loaded idle image: idle.png
+2025-08-07 17:52:53,819 - INFO - Loaded speaking image: speaking.png
+2025-08-07 17:52:53,885 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 17:52:53,885 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 17:52:54,029 - INFO - Fetching ElevenLabs voices...
+2025-08-07 17:52:54,215 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 17:52:54,486 - INFO - OpenAI client initialized
+2025-08-07 17:52:57,271 - INFO - Found 33 audio devices
+2025-08-07 17:52:57,271 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 17:52:57,376 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 18:07:02,047 - INFO - ElevenLabs new API detected
+2025-08-07 18:07:02,289 - INFO - Loaded idle image: idle.png
+2025-08-07 18:07:02,337 - INFO - Loaded speaking image: speaking.png
+2025-08-07 18:07:02,382 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 18:07:02,382 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 18:07:02,441 - INFO - Fetching ElevenLabs voices...
+2025-08-07 18:07:02,600 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 18:07:02,834 - INFO - OpenAI client initialized
+2025-08-07 18:07:05,077 - INFO - Found 33 audio devices
+2025-08-07 18:07:05,077 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 18:07:05,127 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 18:07:45,276 - WARNING - Slow tts_time: 6.56s
+2025-08-07 18:07:57,745 - WARNING - Slow tts_time: 6.43s
+2025-08-07 18:07:58,655 - INFO - Fetching ElevenLabs voices...
+2025-08-07 18:07:58,770 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 18:07:58,962 - INFO - OpenAI client initialized
+2025-08-07 18:08:16,625 - WARNING - Slow tts_time: 12.47s
+2025-08-07 18:08:23,065 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-08-07 18:08:23,069 - WARNING - Slow ai_response_time: 3.70s
+2025-08-07 18:08:47,243 - WARNING - Slow tts_time: 24.15s
+2025-08-07 18:08:58,620 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-08-07 18:09:02,917 - WARNING - Slow tts_time: 4.27s
+2025-08-07 18:09:19,720 - WARNING - Slow tts_time: 5.05s
+2025-08-07 18:09:25,882 - WARNING - Slow tts_time: 5.43s
+2025-08-07 18:09:31,109 - WARNING - Slow tts_time: 5.23s
+2025-08-07 18:09:36,235 - WARNING - Slow tts_time: 5.13s
+2025-08-07 18:09:42,341 - WARNING - Slow tts_time: 5.04s
+2025-08-07 18:09:45,266 - INFO - Fetching ElevenLabs voices...
+2025-08-07 18:09:45,379 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 18:09:45,565 - INFO - OpenAI client initialized
