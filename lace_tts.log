@@ -42,3 +42,65 @@
 2025-08-07 17:15:00,552 - INFO - Found 33 audio devices
 2025-08-07 17:15:00,552 - INFO - Found 13 input devices and 20 output devices
 2025-08-07 17:15:00,649 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 17:25:49,870 - INFO - ElevenLabs new API detected
+2025-08-07 17:25:50,109 - INFO - Loaded idle image: idle.png
+2025-08-07 17:25:50,159 - INFO - Loaded speaking image: speaking.png
+2025-08-07 17:25:50,205 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 17:25:50,205 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 17:25:50,268 - INFO - Fetching ElevenLabs voices...
+2025-08-07 17:25:50,436 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 17:25:50,656 - INFO - OpenAI client initialized
+2025-08-07 17:25:51,605 - INFO - Found 33 audio devices
+2025-08-07 17:25:51,605 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 17:25:51,701 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 17:26:53,151 - INFO - ElevenLabs new API detected
+2025-08-07 17:26:53,373 - INFO - Loaded idle image: idle.png
+2025-08-07 17:26:53,420 - INFO - Loaded speaking image: speaking.png
+2025-08-07 17:26:53,463 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 17:26:53,463 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 17:26:53,525 - INFO - Fetching ElevenLabs voices...
+2025-08-07 17:26:53,630 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 17:26:53,849 - INFO - OpenAI client initialized
+2025-08-07 17:26:54,791 - INFO - Found 33 audio devices
+2025-08-07 17:26:54,791 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 17:26:54,887 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 17:26:58,562 - INFO - Stopping recording and transcribing...
+2025-08-07 17:26:59,618 - ERROR - Processing error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmppf67kh62.wav'
+2025-08-07 17:28:46,607 - INFO - ElevenLabs new API detected
+2025-08-07 17:28:46,858 - INFO - Loaded idle image: idle.png
+2025-08-07 17:28:46,907 - INFO - Loaded speaking image: speaking.png
+2025-08-07 17:28:46,958 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 17:28:46,958 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 17:28:47,022 - INFO - Fetching ElevenLabs voices...
+2025-08-07 17:28:47,131 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 17:28:47,349 - INFO - OpenAI client initialized
+2025-08-07 17:28:48,325 - INFO - Found 33 audio devices
+2025-08-07 17:28:48,326 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 17:28:48,428 - INFO - Starting Lace's Simple TTS App v1.0.0
+[2025-08-07 17:42:58,584] INFO: ElevenLabs new API detected
+[2025-08-07 17:42:58,642] INFO: Config loaded
+[2025-08-07 17:42:59,154] INFO: OpenAI client initialized
+[2025-08-07 17:42:59,930] INFO: Starting Lace's Simple TTS App v1.0.0
+2025-08-07 17:43:35,302 - INFO - ElevenLabs new API detected
+2025-08-07 17:43:35,562 - INFO - Loaded idle image: idle.png
+2025-08-07 17:43:35,609 - INFO - Loaded speaking image: speaking.png
+2025-08-07 17:43:35,659 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 17:43:35,659 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 17:43:35,721 - INFO - Fetching ElevenLabs voices...
+2025-08-07 17:43:35,911 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 17:43:36,132 - INFO - OpenAI client initialized
+2025-08-07 17:43:37,103 - INFO - Found 33 audio devices
+2025-08-07 17:43:37,103 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 17:43:37,208 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 17:43:54,614 - ERROR - Microphone test error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmpfbbfzwy6.wav'
+2025-08-07 17:44:46,044 - INFO - ElevenLabs new API detected
+2025-08-07 17:44:46,291 - INFO - Loaded idle image: idle.png
+2025-08-07 17:44:46,340 - INFO - Loaded speaking image: speaking.png
+2025-08-07 17:44:46,388 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 17:44:46,388 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 17:44:46,452 - INFO - Fetching ElevenLabs voices...
+2025-08-07 17:44:46,582 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 17:44:46,802 - INFO - OpenAI client initialized
+2025-08-07 17:44:47,785 - INFO - Found 33 audio devices
+2025-08-07 17:44:47,785 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 17:44:47,890 - INFO - Starting Lace's Simple TTS App v1.0.0
