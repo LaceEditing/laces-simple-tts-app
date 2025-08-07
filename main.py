@@ -720,12 +720,13 @@ class TTSManager:
     def _speak_elevenlabs(self, text, voice, callback):
         """Use ElevenLabs API for speech"""
         api_key = self.config.get("elevenlabs_api_key")
+        # If no API key is provided, fall back immediately
         if not api_key:
             self._speak_streamelements(text, "Brian", callback)
             return
 
         try:
-            # Use direct API call which works consistently
+            # Perform the ElevenLabs API request
             import requests
 
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
@@ -741,28 +742,48 @@ class TTSManager:
                     "similarity_boost": self.config.get("elevenlabs_similarity", 0.75)
                 }
             }
-
             response = requests.post(url, json=data, headers=headers)
 
             if response.status_code == 200:
+                # Save the returned audio to a temporary file
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
                 temp_file.write(response.content)
                 temp_file.close()
 
                 if PYGAME_AVAILABLE:
-                    pygame.mixer.music.load(temp_file.name)
-                    pygame.mixer.music.play()
-                    while pygame.mixer.music.get_busy():
-                        time.sleep(0.1)
-                    os.remove(temp_file.name)
+                    # Attempt to play the audio and handle playback errors separately
+                    try:
+                        pygame.mixer.music.load(temp_file.name)
+                        pygame.mixer.music.play()
+                        while pygame.mixer.music.get_busy():
+                            time.sleep(0.1)
+                    except Exception as play_err:
+                        # Log playback error and fall back to default voice
+                        print(f"Error playing ElevenLabs audio: {play_err}")
+                        self._speak_streamelements(text, "Brian", callback)
+                        # Clean up the temporary file
+                        try:
+                            os.remove(temp_file.name)
+                        except Exception:
+                            pass
+                        return
+                    finally:
+                        # Always try to delete the temporary file; deletion errors should not trigger a fallback
+                        try:
+                            os.remove(temp_file.name)
+                        except Exception as del_err:
+                            print(f"Error deleting ElevenLabs temp file: {del_err}")
 
+                # If playback succeeded (or pygame isn't available), call the callback
                 if callback:
                     callback()
             else:
+                # For non-successful status codes, log the error and fall back
                 print(f"ElevenLabs API error: {response.status_code} - {response.text}")
                 self._speak_streamelements(text, "Brian", callback)
 
         except Exception as e:
+            # Handle unexpected errors by logging and falling back
             print(f"ElevenLabs error: {e}")
             self._speak_streamelements(text, "Brian", callback)
 
