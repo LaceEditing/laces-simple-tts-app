@@ -7,7 +7,7 @@ import time
 import queue
 import base64
 from pathlib import Path
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFilter
 import keyboard
 import pyautogui
 import cv2
@@ -21,13 +21,33 @@ from datetime import datetime
 import sys
 import io
 import wave
+import logging
+from typing import Optional, Dict, Any
+import random
 
-from enhanced_speech_recognition import (
-    EnhancedSpeechRecognition,
-    SpeechProvider,
-    AudioConfig,
-    create_enhanced_recognizer
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('lace_tts.log'),
+        logging.StreamHandler()
+    ]
 )
+logger = logging.getLogger(__name__)
+
+# Version info
+APP_VERSION = "1.0.0"
+APP_NAME = "Lace's Simple TTS App"
+
+# Import Whisper-based speech recognition
+try:
+    from enhanced_speech_recognition import WhisperSpeechRecognition, create_enhanced_recognizer
+
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    logger.warning("Enhanced speech recognition not available")
+    SPEECH_RECOGNITION_AVAILABLE = False
 
 # Optional imports (will check if available)
 try:
@@ -61,7 +81,7 @@ try:
 
     ELEVENLABS_AVAILABLE = True
     ELEVENLABS_OLD_API = False
-    print("ElevenLabs new API detected")
+    logger.info("ElevenLabs new API detected")
 except ImportError:
     try:
         # Try old API
@@ -69,11 +89,11 @@ except ImportError:
 
         ELEVENLABS_AVAILABLE = True
         ELEVENLABS_OLD_API = True
-        print("ElevenLabs old API detected")
+        logger.info("ElevenLabs old API detected")
     except ImportError:
         ELEVENLABS_AVAILABLE = False
         ELEVENLABS_OLD_API = False
-        print("ElevenLabs not installed")
+        logger.info("ElevenLabs not installed")
 
 try:
     import azure.cognitiveservices.speech as speechsdk
@@ -121,8 +141,21 @@ COLORS = {
     'success': '#27AE60',  # Green for success
     'error': '#E74C3C',  # Red for errors
     'info': '#3498DB',  # Blue for info
-    'twitch': '#6441A4'  # Twitch purple
+    'twitch': '#6441A4',  # Twitch purple
+    'warning': '#F39C12'
 }
+
+# Fallback responses for API failures
+FALLBACK_RESPONSES = [
+    "Hmm, I seem to be having connection issues right now!",
+    "Oh dear, my brain seems to be buffering... Try again in a moment!",
+    "I'm experiencing some technical difficulties. How embarrassing!",
+    "My AI powers need recharging! Give me a second...",
+    "Oops, looks like I'm offline at the moment!",
+    "Connection lost to the mothership! Standby...",
+    "I'm having a moment... probably need more coffee!",
+    "Error 404: Wit not found. Just kidding, but I am having issues!",
+]
 
 # Voice providers and their available voices
 VOICE_OPTIONS = {
@@ -230,11 +263,134 @@ DEFAULT_CONFIG = {
     "elevenlabs_similarity": 0.75,
     "mic_energy_threshold": 500,  # Microphone sensitivity
     "voice_capture_screen": False,  # Include screen with voice input
-    "speech_provider": "auto",  # auto, google, whisper_api, whisper_local, azure
+    "speech_provider": "whisper_local",  # Changed to use local Whisper
     "noise_reduction": True,  # Apply noise reduction to audio
     "normalize_audio": True,  # Normalize audio levels
-    "whisper_model_size": "base"  # tiny, base, small, medium, large
+    "whisper_model_size": "tiny",  # Changed to tiny for speed
+    "enable_animations": True,
+    "animation_speed": 0.3,
+    "tts_cache_enabled": True,
+    "performance_mode": False
 }
+
+
+class PerformanceMonitor:
+    """Monitor and optimize performance"""
+
+    def __init__(self):
+        self.metrics = {
+            'transcription_time': [],
+            'tts_time': [],
+            'ai_response_time': [],
+            'total_response_time': []
+        }
+
+    def record_metric(self, metric_name: str, duration: float):
+        """Record a performance metric"""
+        if metric_name in self.metrics:
+            self.metrics[metric_name].append(duration)
+            if len(self.metrics[metric_name]) > 100:
+                self.metrics[metric_name].pop(0)
+
+            # Log slow operations
+            if duration > 3.0:
+                logger.warning(f"Slow {metric_name}: {duration:.2f}s")
+
+    def get_average(self, metric_name: str) -> float:
+        """Get average time for a metric"""
+        if metric_name in self.metrics and self.metrics[metric_name]:
+            return sum(self.metrics[metric_name]) / len(self.metrics[metric_name])
+        return 0.0
+
+    def get_performance_report(self) -> str:
+        """Generate performance report"""
+        report = "Performance Metrics:\n"
+        for metric, times in self.metrics.items():
+            if times:
+                avg = sum(times) / len(times)
+                report += f"{metric}: {avg:.2f}s avg\n"
+        return report
+
+
+class AnimatedAvatar:
+    """Enhanced avatar system with smooth transitions"""
+
+    def __init__(self, idle_path: str, speaking_path: str):
+        self.idle_image = None
+        self.speaking_image = None
+        self.current_image = None
+        self.is_speaking = False
+        self.transition_thread = None
+        self.transition_active = False
+
+        self.load_images(idle_path, speaking_path)
+
+    def load_images(self, idle_path: str, speaking_path: str):
+        """Load and optimize avatar images"""
+        try:
+            if os.path.exists(idle_path):
+                self.idle_image = Image.open(idle_path).convert('RGBA')
+                self.idle_image.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                self.current_image = self.idle_image.copy()
+                logger.info(f"Loaded idle image: {idle_path}")
+
+            if os.path.exists(speaking_path):
+                self.speaking_image = Image.open(speaking_path).convert('RGBA')
+                self.speaking_image.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                # Add glow effect to speaking image
+                self._add_glow_effect()
+                logger.info(f"Loaded speaking image: {speaking_path}")
+
+        except Exception as e:
+            logger.error(f"Error loading avatar images: {e}")
+
+    def _add_glow_effect(self):
+        """Add a subtle glow effect to the speaking image"""
+        if not self.speaking_image:
+            return
+
+        # Create glow
+        glow = self.speaking_image.filter(ImageFilter.GaussianBlur(radius=5))
+        # Blend with original
+        self.speaking_image = Image.blend(self.speaking_image, glow, 0.2)
+
+    def transition(self, to_speaking: bool, duration: float = 0.3):
+        """Smooth transition between states"""
+        if self.transition_active:
+            return
+
+        self.transition_active = True
+
+        def animate():
+            if not self.idle_image or not self.speaking_image:
+                self.transition_active = False
+                return
+
+            steps = int(duration * 30)  # 30 FPS
+            for i in range(steps + 1):
+                if not self.transition_active:
+                    break
+
+                # Ease-in-out interpolation
+                t = i / steps
+                t = t * t * (3.0 - 2.0 * t)
+
+                if to_speaking:
+                    self.current_image = Image.blend(self.idle_image, self.speaking_image, t)
+                else:
+                    self.current_image = Image.blend(self.idle_image, self.speaking_image, 1.0 - t)
+
+                time.sleep(1 / 30)
+
+            self.is_speaking = to_speaking
+            self.transition_active = False
+
+        self.transition_thread = threading.Thread(target=animate, daemon=True)
+        self.transition_thread.start()
+
+    def get_current_frame(self):
+        """Get the current avatar frame"""
+        return ImageTk.PhotoImage(self.current_image) if self.current_image else None
 
 
 class ConversationHistory:
@@ -278,7 +434,7 @@ class ConversationHistory:
             with open(self.filename, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"Error saving conversation history: {e}")
+            logger.error(f"Error saving conversation history: {e}")
 
     def get_recent(self, count=10):
         """Get recent conversation entries"""
@@ -316,7 +472,7 @@ class ConfigManager:
                 json.dump(self.config, f, indent=4)
             return True
         except Exception as e:
-            print(f"Error saving config: {e}")
+            logger.error(f"Error saving config: {e}")
             return False
 
     def get(self, key, default=None):
@@ -342,7 +498,7 @@ class AudioDeviceManager:
             try:
                 p = pyaudio.PyAudio()
 
-                print(f"Found {p.get_device_count()} audio devices:")
+                logger.info(f"Found {p.get_device_count()} audio devices")
 
                 # Get device info
                 for i in range(p.get_device_count()):
@@ -353,9 +509,6 @@ class AudioDeviceManager:
                         'channels': info['maxInputChannels'] or info['maxOutputChannels']
                     }
 
-                    print(
-                        f"  Device {i}: {info['name']} (In:{info['maxInputChannels']}, Out:{info['maxOutputChannels']})")
-
                     # Categorize as input or output
                     if info['maxInputChannels'] > 0:
                         input_devices.append(device_info)
@@ -364,9 +517,9 @@ class AudioDeviceManager:
 
                 p.terminate()
 
-                print(f"Found {len(input_devices)} input devices and {len(output_devices)} output devices")
+                logger.info(f"Found {len(input_devices)} input devices and {len(output_devices)} output devices")
             except Exception as e:
-                print(f"Error getting audio devices: {e}")
+                logger.error(f"Error getting audio devices: {e}")
 
         return input_devices, output_devices
 
@@ -381,7 +534,7 @@ class AudioDeviceManager:
                 pygame.mixer.init(frequency=48000, buffer=1024)
                 return True
             except Exception as e:
-                print(f"Error setting output device: {e}")
+                logger.error(f"Error setting output device: {e}")
                 return False
         return False
 
@@ -412,7 +565,7 @@ class TwitchChat:
             oauth = f"oauth:{oauth}"
 
         try:
-            print(f"Connecting to Twitch as {username} to channel #{channel}...")
+            logger.info(f"Connecting to Twitch as {username} to channel #{channel}...")
 
             # Create socket connection
             self.socket = socket.socket()
@@ -425,7 +578,7 @@ class TwitchChat:
 
             # Wait for authentication response
             response = self.socket.recv(1024).decode('utf-8')
-            print(f"Auth response: {response}")
+            logger.debug(f"Auth response: {response}")
 
             if "Welcome" not in response and "001" not in response:
                 if "Login authentication failed" in response:
@@ -439,7 +592,7 @@ class TwitchChat:
 
             # Check join response
             response = self.socket.recv(1024).decode('utf-8')
-            print(f"Join response: {response}")
+            logger.debug(f"Join response: {response}")
 
             self.connected = True
             self.socket.settimeout(0.1)  # Set non-blocking for reading
@@ -453,7 +606,7 @@ class TwitchChat:
         except socket.timeout:
             return False, "Connection timed out. Check your internet connection."
         except Exception as e:
-            print(f"Twitch connection error: {e}")
+            logger.error(f"Twitch connection error: {e}")
             return False, f"Connection error: {str(e)}"
 
     def disconnect(self):
@@ -480,7 +633,7 @@ class TwitchChat:
             self.socket.send(f"PRIVMSG #{channel} :{message}\r\n".encode('utf-8'))
             return True
         except Exception as e:
-            print(f"Error sending message: {e}")
+            logger.error(f"Error sending message: {e}")
             return False
 
     def read_chat(self):
@@ -520,7 +673,7 @@ class TwitchChat:
                                 if self.message_callback:
                                     self.message_callback("twitch_chat", f"{username}: {message}")
                         except Exception as e:
-                            print(f"Error parsing message: {e}")
+                            logger.error(f"Error parsing message: {e}")
 
                     # Handle JOIN/PART messages for user awareness
                     elif 'JOIN' in line and not line.startswith(':'):
@@ -538,7 +691,7 @@ class TwitchChat:
             pass
         except Exception as e:
             if self.connected:  # Only print error if we think we're connected
-                print(f"Error reading chat: {e}")
+                logger.error(f"Error reading chat: {e}")
 
         return messages
 
@@ -560,15 +713,15 @@ class StreamElementsTTS:
                 temp_file.close()
                 return temp_file.name
             else:
-                print(f"StreamElements TTS error: {response.status_code}")
+                logger.error(f"StreamElements TTS error: {response.status_code}")
                 return None
         except Exception as e:
-            print(f"StreamElements TTS error: {e}")
+            logger.error(f"StreamElements TTS error: {e}")
             return None
 
 
 class TTSManager:
-    """Manages text-to-speech with multiple backends"""
+    """Manages text-to-speech with multiple backends and caching"""
 
     def __init__(self, config_manager):
         self.config = config_manager
@@ -576,6 +729,9 @@ class TTSManager:
         self.azure_config = None
         self.is_speaking = False
         self.speech_queue = queue.Queue()
+        self.cache = {}  # Cache for repeated phrases
+        self.max_cache_size = 50
+        self.performance_monitor = PerformanceMonitor()
         self.init_tts()
         self.start_speech_processor()
 
@@ -598,7 +754,7 @@ class TTSManager:
                     display_name = voice.name.split('-')[0].split('.')[0][:20]
                     VOICE_OPTIONS["pyttsx3"]["voices"][voice.id] = display_name
             except Exception as e:
-                print(f"Error initializing pyttsx3: {e}")
+                logger.error(f"Error initializing pyttsx3: {e}")
 
         # Fetch ElevenLabs voices if API key is available
         if self.config.get("elevenlabs_api_key"):
@@ -612,16 +768,16 @@ class TTSManager:
                     region=self.config.get("azure_tts_region", "eastus")
                 )
             except Exception as e:
-                print(f"Error initializing Azure: {e}")
+                logger.error(f"Error initializing Azure: {e}")
 
     def fetch_elevenlabs_voices(self):
         """Fetch available voices from ElevenLabs API"""
         try:
-            print("Fetching ElevenLabs voices...")
+            logger.info("Fetching ElevenLabs voices...")
             api_key = self.config.get("elevenlabs_api_key")
 
             if not api_key:
-                print("No ElevenLabs API key provided")
+                logger.info("No ElevenLabs API key provided")
                 return
 
             # Try direct API call which works with any version
@@ -634,9 +790,9 @@ class TTSManager:
                 VOICE_OPTIONS["elevenlabs"]["voices"] = {}
                 for voice in voices_data.get("voices", []):
                     VOICE_OPTIONS["elevenlabs"]["voices"][voice["voice_id"]] = voice["name"]
-                print(f"Loaded {len(voices_data.get('voices', []))} ElevenLabs voices")
+                logger.info(f"Loaded {len(voices_data.get('voices', []))} ElevenLabs voices")
             elif response.status_code == 401:
-                print("Invalid ElevenLabs API key")
+                logger.warning("Invalid ElevenLabs API key")
                 # Keep default voices as fallback
                 VOICE_OPTIONS["elevenlabs"]["voices"] = {
                     "21m00Tcm4TlvDq8ikWAM": "Rachel",
@@ -650,13 +806,11 @@ class TTSManager:
                     "yoZ06aMxZJJ28mfd3POQ": "Sam"
                 }
             else:
-                print(f"Error fetching ElevenLabs voices: {response.status_code}")
-                # Keep default voices as fallback
+                logger.error(f"Error fetching ElevenLabs voices: {response.status_code}")
 
         except Exception as e:
-            print(f"Error fetching ElevenLabs voices: {e}")
-            # Keep default voices as fallback
-            print("Using default ElevenLabs voice list")
+            logger.error(f"Error fetching ElevenLabs voices: {e}")
+            logger.info("Using default ElevenLabs voice list")
 
     def start_speech_processor(self):
         """Start a thread to process speech queue"""
@@ -665,13 +819,19 @@ class TTSManager:
             while True:
                 try:
                     text, callback = self.speech_queue.get(timeout=0.1)
+
+                    start_time = time.time()
                     self.is_speaking = True
                     self._process_speech(text, callback)
                     self.is_speaking = False
+
+                    duration = time.time() - start_time
+                    self.performance_monitor.record_metric('tts_time', duration)
+
                 except queue.Empty:
                     continue
                 except Exception as e:
-                    print(f"Speech processor error: {e}")
+                    logger.error(f"Speech processor error: {e}")
                     self.is_speaking = False
 
         thread = threading.Thread(target=processor, daemon=True)
@@ -681,12 +841,61 @@ class TTSManager:
         """Queue text for speech synthesis"""
         self.speech_queue.put((text, callback))
 
+    def _get_cached_audio(self, text: str, voice: str) -> Optional[str]:
+        """Check if audio is cached"""
+        if not self.config.get("tts_cache_enabled", True):
+            return None
+
+        cache_key = f"{voice}:{text[:100]}"
+        if cache_key in self.cache:
+            cached_file = self.cache[cache_key]
+            if os.path.exists(cached_file):
+                return cached_file
+            else:
+                del self.cache[cache_key]
+        return None
+
+    def _cache_audio(self, text: str, voice: str, audio_path: str):
+        """Cache audio file"""
+        if not self.config.get("tts_cache_enabled", True):
+            return
+
+        if len(self.cache) >= self.max_cache_size:
+            # Remove oldest entry
+            oldest_key = next(iter(self.cache))
+            old_file = self.cache[oldest_key]
+            try:
+                if os.path.exists(old_file):
+                    os.remove(old_file)
+            except:
+                pass
+            del self.cache[oldest_key]
+
+        cache_key = f"{voice}:{text[:100]}"
+        self.cache[cache_key] = audio_path
+
     def _process_speech(self, text, callback):
         """Actually convert text to speech and play it"""
         provider = self.config.get("voice_provider", "streamelements")
         voice = self.config.get("voice_name", "Brian")
 
-        print(f"Speaking with {provider}/{voice}: {text[:50]}...")
+        logger.debug(f"Speaking with {provider}/{voice}: {text[:50]}...")
+
+        # Check cache first
+        cached_audio = self._get_cached_audio(text, voice)
+        if cached_audio:
+            logger.debug("Using cached audio")
+            if PYGAME_AVAILABLE:
+                try:
+                    pygame.mixer.music.load(cached_audio)
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"Error playing cached audio: {e}")
+            if callback:
+                callback()
+            return
 
         if provider == "streamelements":
             self._speak_streamelements(text, voice, callback)
@@ -711,9 +920,17 @@ class TTSManager:
                 pygame.mixer.music.play()
                 while pygame.mixer.music.get_busy():
                     time.sleep(0.1)
+
+                # Cache the audio
+                if self.config.get("tts_cache_enabled", True):
+                    self._cache_audio(text, voice, audio_file)
+                else:
+                    try:
+                        os.remove(audio_file)
+                    except:
+                        pass
             except Exception as e:
-                print(f"Error playing StreamElements audio: {e}")
-            finally:
+                logger.error(f"Error playing StreamElements audio: {e}")
                 try:
                     if audio_file:
                         os.remove(audio_file)
@@ -726,13 +943,11 @@ class TTSManager:
     def _speak_elevenlabs(self, text, voice, callback):
         """Use ElevenLabs API for speech"""
         api_key = self.config.get("elevenlabs_api_key")
-        # If no API key is provided, fall back immediately
         if not api_key:
             self._speak_streamelements(text, "Brian", callback)
             return
 
         try:
-            # Perform the ElevenLabs API request
             import requests
 
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
@@ -751,46 +966,41 @@ class TTSManager:
             response = requests.post(url, json=data, headers=headers)
 
             if response.status_code == 200:
-                # Save the returned audio to a temporary file
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
                 temp_file.write(response.content)
                 temp_file.close()
 
                 if PYGAME_AVAILABLE:
-                    # Attempt to play the audio and handle playback errors separately
                     try:
                         pygame.mixer.music.load(temp_file.name)
                         pygame.mixer.music.play()
                         while pygame.mixer.music.get_busy():
                             time.sleep(0.1)
                     except Exception as play_err:
-                        # Log playback error and fall back to default voice
-                        print(f"Error playing ElevenLabs audio: {play_err}")
+                        logger.error(f"Error playing ElevenLabs audio: {play_err}")
                         self._speak_streamelements(text, "Brian", callback)
-                        # Clean up the temporary file
                         try:
                             os.remove(temp_file.name)
-                        except Exception:
+                        except:
                             pass
                         return
                     finally:
-                        # Always try to delete the temporary file; deletion errors should not trigger a fallback
-                        try:
-                            os.remove(temp_file.name)
-                        except Exception as del_err:
-                            print(f"Error deleting ElevenLabs temp file: {del_err}")
+                        if not self.config.get("tts_cache_enabled", True):
+                            try:
+                                os.remove(temp_file.name)
+                            except:
+                                pass
+                        else:
+                            self._cache_audio(text, voice, temp_file.name)
 
-                # If playback succeeded (or pygame isn't available), call the callback
                 if callback:
                     callback()
             else:
-                # For non-successful status codes, log the error and fall back
-                print(f"ElevenLabs API error: {response.status_code} - {response.text}")
+                logger.error(f"ElevenLabs API error: {response.status_code}")
                 self._speak_streamelements(text, "Brian", callback)
 
         except Exception as e:
-            # Handle unexpected errors by logging and falling back
-            print(f"ElevenLabs error: {e}")
+            logger.error(f"ElevenLabs error: {e}")
             self._speak_streamelements(text, "Brian", callback)
 
     def _speak_azure(self, text, voice, callback):
@@ -817,12 +1027,16 @@ class TTSManager:
                     pygame.mixer.music.play()
                     while pygame.mixer.music.get_busy():
                         time.sleep(0.1)
-                    os.remove(temp_file.name)
+
+                    if not self.config.get("tts_cache_enabled", True):
+                        os.remove(temp_file.name)
+                    else:
+                        self._cache_audio(text, voice, temp_file.name)
 
             if callback:
                 callback()
         except Exception as e:
-            print(f"Azure TTS error: {e}")
+            logger.error(f"Azure TTS error: {e}")
             self._speak_streamelements(text, "Brian", callback)
 
     def _speak_gtts(self, text, voice, callback):
@@ -845,12 +1059,16 @@ class TTSManager:
                 pygame.mixer.music.play()
                 while pygame.mixer.music.get_busy():
                     time.sleep(0.1)
-                os.remove(temp_file.name)
+
+                if not self.config.get("tts_cache_enabled", True):
+                    os.remove(temp_file.name)
+                else:
+                    self._cache_audio(text, voice, temp_file.name)
 
             if callback:
                 callback()
         except Exception as e:
-            print(f"Google TTS error: {e}")
+            logger.error(f"Google TTS error: {e}")
             self._speak_streamelements(text, "Brian", callback)
 
     def _speak_pyttsx3(self, text, voice_id, callback):
@@ -864,163 +1082,18 @@ class TTSManager:
                 self.engine.say(text)
                 self.engine.runAndWait()
             except Exception as e:
-                print(f"pyttsx3 error: {e}")
+                logger.error(f"pyttsx3 error: {e}")
 
         if callback:
             callback()
 
 
-class EnhancedSpeechRecognition:
-    """Enhanced speech recognition with simple recording"""
-
-    def __init__(self):
-        self.recognizer = None
-        self.microphone = None
-        self.is_recording = False
-        self.recorded_audio = None
-        self.recording_thread = None
-        self.recording_start_time = None
-
-        if SPEECH_RECOGNITION_AVAILABLE:
-            self.recognizer = sr.Recognizer()
-            # Default energy threshold (will be overridden by config)
-            self.recognizer.energy_threshold = 500
-            self.recognizer.dynamic_energy_threshold = False  # Disable dynamic adjustment for consistency
-            self.recognizer.pause_threshold = 1.5  # How long to wait for pause
-            print(f"Speech recognizer initialized with default energy threshold: {self.recognizer.energy_threshold}")
-
-    def set_energy_threshold(self, threshold):
-        """Set the energy threshold for speech detection"""
-        if self.recognizer:
-            self.recognizer.energy_threshold = threshold
-            print(f"Energy threshold set to: {threshold}")
-
-    def start_recording(self, device_index=None, energy_threshold=None):
-        """Start recording audio"""
-        if not SPEECH_RECOGNITION_AVAILABLE or not self.recognizer:
-            print("Speech recognition not available")
-            return False
-
-        # Set energy threshold if provided
-        if energy_threshold is not None:
-            self.set_energy_threshold(energy_threshold)
-
-        self.is_recording = True
-        self.recorded_audio = None
-        self.recording_start_time = time.time()
-
-        def record():
-            try:
-                # Use specified device or default
-                if device_index is not None and device_index >= 0:
-                    print(f"Using microphone device index: {device_index}")
-                    mic = sr.Microphone(device_index=device_index)
-                else:
-                    print("Using default microphone")
-                    mic = sr.Microphone()
-
-                with mic as source:
-                    # Quick adjustment for ambient noise
-                    print("Adjusting for ambient noise...")
-                    self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    # Keep the user-specified threshold
-                    if energy_threshold is not None:
-                        self.recognizer.energy_threshold = energy_threshold
-                    print(f"Energy threshold: {self.recognizer.energy_threshold}")
-
-                    print("Listening for speech...")
-                    # Keep listening while the button is held
-                    audio_frames = []
-
-                    # Use a loop to continuously capture audio while recording
-                    while self.is_recording:
-                        try:
-                            # Listen for a short duration at a time
-                            audio_chunk = self.recognizer.listen(source, timeout=0.1, phrase_time_limit=1)
-                            audio_frames.append(audio_chunk)
-                        except sr.WaitTimeoutError:
-                            # No audio in this chunk, continue
-                            pass
-
-                        # Check if we've been recording for too long (safety limit)
-                        if time.time() - self.recording_start_time > 30:
-                            print("Recording time limit reached")
-                            break
-
-                    # Combine all audio frames
-                    if audio_frames:
-                        print(f"Captured {len(audio_frames)} audio chunks")
-                        # Use the last continuous chunk for simplicity
-                        # In production, you'd want to combine these properly
-                        self.recorded_audio = audio_frames[-1] if len(audio_frames) == 1 else audio_frames[0]
-
-                        # If we have multiple chunks, try to use the longest one
-                        for chunk in audio_frames:
-                            if hasattr(chunk, 'frame_data') and len(chunk.frame_data) > len(
-                                    self.recorded_audio.frame_data):
-                                self.recorded_audio = chunk
-                    else:
-                        print("No audio chunks captured")
-
-            except Exception as e:
-                print(f"Recording error: {e}")
-                import traceback
-                traceback.print_exc()
-                self.recorded_audio = None
-
-        self.recording_thread = threading.Thread(target=record, daemon=True)
-        self.recording_thread.start()
-        return True
-
-    def stop_and_transcribe(self):
-        """Stop recording and transcribe the audio"""
-        self.is_recording = False
-
-        # Wait for recording thread to finish (max 1 second)
-        if self.recording_thread:
-            self.recording_thread.join(timeout=1.0)
-
-        if not self.recorded_audio:
-            print("No audio was recorded")
-            return None
-
-        # Transcribe the recorded audio
-        try:
-            print("Transcribing audio with Google Speech Recognition...")
-            # Try with different parameters
-            try:
-                text = self.recognizer.recognize_google(self.recorded_audio, language="en-US")
-                print(f"Transcribed successfully: {text}")
-                return text
-            except sr.UnknownValueError:
-                # Try with show_all to get alternatives
-                print("Trying to get alternative transcriptions...")
-                try:
-                    result = self.recognizer.recognize_google(self.recorded_audio, language="en-US", show_all=True)
-                    if result and 'alternative' in result:
-                        text = result['alternative'][0].get('transcript', '')
-                        if text:
-                            print(f"Got alternative transcription: {text}")
-                            return text
-                except:
-                    pass
-                print("Google Speech Recognition could not understand the audio")
-                return None
-        except sr.RequestError as e:
-            print(f"Could not request results from Google Speech Recognition service; {e}")
-            return None
-        except Exception as e:
-            print(f"Transcription error: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-
 class OBSImageOutput:
     """Manages image output for OBS integration"""
 
-    def __init__(self, config_manager):
+    def __init__(self, config_manager, avatar: AnimatedAvatar = None):
         self.config = config_manager
+        self.avatar = avatar
         self.current_state = "idle"
 
     def update_obs_image(self, state="idle"):
@@ -1029,18 +1102,24 @@ class OBSImageOutput:
             return
 
         try:
-            if state == "speaking":
-                source_image = self.config.get("speaking_image", "speaking.png")
-            else:
-                source_image = self.config.get("idle_image", "idle.png")
-
-            if os.path.exists(source_image):
-                shutil.copy2(source_image, OBS_OUTPUT_FILE)
+            # If we have an animated avatar, use its current frame
+            if self.avatar and self.avatar.current_image:
+                self.avatar.current_image.save(OBS_OUTPUT_FILE, "PNG")
                 self.current_state = state
             else:
-                print(f"Image not found: {source_image}")
+                # Fallback to static image copy
+                if state == "speaking":
+                    source_image = self.config.get("speaking_image", "speaking.png")
+                else:
+                    source_image = self.config.get("idle_image", "idle.png")
+
+                if os.path.exists(source_image):
+                    shutil.copy2(source_image, OBS_OUTPUT_FILE)
+                    self.current_state = state
+                else:
+                    logger.warning(f"Image not found: {source_image}")
         except Exception as e:
-            print(f"Error updating OBS image: {e}")
+            logger.error(f"Error updating OBS image: {e}")
 
 
 class AIManager:
@@ -1051,6 +1130,9 @@ class AIManager:
         self.conversation_history = conversation_history
         self.client = None
         self.chat_history = []
+        self.performance_monitor = PerformanceMonitor()
+        self.api_failures = 0
+        self.max_api_failures = 3
         self.init_ai()
 
     def init_ai(self):
@@ -1074,18 +1156,32 @@ class AIManager:
                                 "content": entry["content"]
                             })
 
+                logger.info("OpenAI client initialized")
                 return True
             except Exception as e:
-                print(f"OpenAI init error: {e}")
+                logger.error(f"OpenAI init error: {e}")
                 return False
         return False
 
+    def get_fallback_response(self, prompt: str = None) -> str:
+        """Get a fallback response when API fails"""
+        # Check if it's likely an API credit issue
+        if self.api_failures >= self.max_api_failures:
+            return ("Oh no! It looks like my AI credits might have run out! "
+                    "Please check your OpenAI account balance and add more credits if needed. "
+                    "In the meantime, I'll just pretend to be smart! 🤖")
+
+        # Return a random fallback response
+        return random.choice(FALLBACK_RESPONSES)
+
     def get_response(self, prompt, image_base64=None):
-        """Get AI response with optional image"""
+        """Get AI response with optional image and fallback handling"""
         if not self.client:
             self.init_ai()
             if not self.client:
-                return "AI is not configured. Please set up OpenAI API key in settings."
+                return self.get_fallback_response()
+
+        start_time = time.time()
 
         try:
             if image_base64:
@@ -1116,7 +1212,8 @@ class AIManager:
                 model=model_name,
                 messages=self.chat_history,
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                timeout=15  # Add timeout
             )
 
             response = completion.choices[0].message.content
@@ -1126,9 +1223,31 @@ class AIManager:
             if self.config.get("save_conversation_history", True):
                 self.conversation_history.add_entry("assistant", response)
 
+            # Reset failure counter on success
+            self.api_failures = 0
+
+            duration = time.time() - start_time
+            self.performance_monitor.record_metric('ai_response_time', duration)
+
             return response
+
         except Exception as e:
-            return f"Error getting AI response: {str(e)}"
+            self.api_failures += 1
+            error_str = str(e).lower()
+
+            # Check for specific error types
+            if "insufficient_quota" in error_str or "rate_limit_exceeded" in error_str:
+                logger.error("OpenAI API quota exceeded")
+                return ("Uh oh! Looks like the OpenAI API credits have run out! 💸 "
+                        "Please add more credits to your OpenAI account at platform.openai.com. "
+                        "Until then, I'll be running on sass and sarcasm alone!")
+            elif "invalid_api_key" in error_str or "api_key" in error_str:
+                logger.error("Invalid OpenAI API key")
+                return ("Invalid API key detected! Please check your OpenAI API key in settings. "
+                        "You can get one from platform.openai.com/api-keys")
+            else:
+                logger.error(f"AI response error: {e}")
+                return self.get_fallback_response(prompt)
 
 
 class ScreenCapture:
@@ -1153,7 +1272,7 @@ class ScreenCapture:
             image_base64 = base64.b64encode(buffer).decode('utf-8')
             return image_base64
         except Exception as e:
-            print(f"Screen capture error: {e}")
+            logger.error(f"Screen capture error: {e}")
             return None
 
 
@@ -1186,11 +1305,11 @@ class StyledButton(tk.Button):
 
 
 class AIStreamerGUI:
-    """Main GUI Application with a similar color to the File Converter I made"""
+    """Main GUI Application with all original features plus enhancements"""
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("💜 Lace's Simple TTS App 💜")
+        self.root.title(f"💜 {APP_NAME} v{APP_VERSION} 💜")
         self.root.geometry("1100x750")
         self.root.configure(bg=COLORS['bg'])
 
@@ -1207,20 +1326,30 @@ class AIStreamerGUI:
         self.setup_styles()
 
         # Initialize managers (CORRECT ORDER - config must come first!)
-        self.config = ConfigManager()  # This MUST be initialized first
+        self.config = ConfigManager()
         self.conversation_history = ConversationHistory()
+        self.performance_monitor = PerformanceMonitor()
+
+        # Initialize avatar
+        self.avatar = AnimatedAvatar(
+            self.config.get("idle_image", "idle.png"),
+            self.config.get("speaking_image", "speaking.png")
+        )
+
+        # Initialize TTS and AI
         self.tts = TTSManager(self.config)
         self.ai = AIManager(self.config, self.conversation_history)
-        self.obs_output = OBSImageOutput(self.config)
+        self.obs_output = OBSImageOutput(self.config, self.avatar)
 
-        # Initialize enhanced speech recognition AFTER config is created
-        try:
-            from enhanced_speech_recognition import create_enhanced_recognizer
-            self.speech_recognition = create_enhanced_recognizer(self.config)
-        except ImportError:
-            print("Enhanced speech recognition module not found, falling back to original")
-            # Fallback to original if enhanced module not available
-            self.speech_recognition = EnhancedSpeechRecognition()
+        # Initialize enhanced speech recognition
+        if SPEECH_RECOGNITION_AVAILABLE:
+            try:
+                self.speech_recognition = create_enhanced_recognizer(self.config)
+            except Exception as e:
+                logger.error(f"Error creating speech recognizer: {e}")
+                self.speech_recognition = None
+        else:
+            self.speech_recognition = None
 
         # Initialize Twitch with message callback
         self.twitch = TwitchChat(self.config, self.handle_twitch_message)
@@ -1253,6 +1382,10 @@ class AIStreamerGUI:
         self.process_messages()
         self.setup_push_to_talk()
 
+        # Update avatar display loop
+        if self.config.get("enable_animations", True):
+            self.update_avatar_display()
+
         # Check for first run
         if not self.config.get("openai_api_key"):
             self.show_setup_wizard()
@@ -1263,30 +1396,22 @@ class AIStreamerGUI:
 
         if not PYAUDIO_AVAILABLE:
             missing.append("PyAudio (required for microphone)")
-            print("WARNING: PyAudio not installed - microphone will not work!")
-            print("Install with: pip install pyaudio")
+            logger.warning("PyAudio not installed - microphone will not work!")
 
         if not SPEECH_RECOGNITION_AVAILABLE:
-            missing.append("SpeechRecognition (required for voice input)")
-            print("WARNING: SpeechRecognition not installed - voice input will not work!")
-            print("Install with: pip install SpeechRecognition")
+            missing.append("Speech Recognition (required for voice input)")
+            logger.warning("Speech Recognition not installed - voice input will not work!")
 
         if not PYGAME_AVAILABLE:
             missing.append("Pygame (required for audio playback)")
-            print("WARNING: Pygame not installed - audio playback may not work!")
-            print("Install with: pip install pygame")
+            logger.warning("Pygame not installed - audio playback may not work!")
 
         if missing:
-            print("\n" + "=" * 50)
-            print("MISSING DEPENDENCIES:")
-            for dep in missing:
-                print(f"  • {dep}")
-            print("=" * 50 + "\n")
+            logger.warning(f"Missing dependencies: {', '.join(missing)}")
 
     def set_window_icon(self):
         """Set custom window icon if available"""
         try:
-            # Try multiple icon formats
             if os.path.exists(ICON_FILE):
                 self.root.iconbitmap(ICON_FILE)
             elif os.path.exists("app_icon.png"):
@@ -1299,11 +1424,10 @@ class AIStreamerGUI:
                 photo = ImageTk.PhotoImage(icon_img)
                 self.root.wm_iconphoto(True, photo)
         except Exception as e:
-            print(f"Could not set custom icon: {e}")
+            logger.error(f"Could not set custom icon: {e}")
 
     def setup_fonts(self):
         """Setup cute fonts for the application"""
-        # Try to use cute fonts, fallback to standard if not available
         try:
             self.title_font = font.Font(family="Comic Sans MS", size=20, weight="bold")
             self.header_font = font.Font(family="Comic Sans MS", size=14, weight="bold")
@@ -1311,7 +1435,7 @@ class AIStreamerGUI:
             self.small_font = font.Font(family="Comic Sans MS", size=9)
         except:
             # Fallback fonts if Comic Sans not available
-            self.title_font = font.Font(family="Arial Rounded MT Bold", size=20, weight="bold")
+            self.title_font = font.Font(family="Arial", size=20, weight="bold")
             self.header_font = font.Font(family="Arial", size=14, weight="bold")
             self.normal_font = font.Font(family="Arial", size=11)
             self.small_font = font.Font(family="Arial", size=9)
@@ -1337,7 +1461,7 @@ class AIStreamerGUI:
         style.configure('TSpinbox', fieldbackground=COLORS['entry_bg'])
         style.configure('TCombobox', fieldbackground=COLORS['entry_bg'])
 
-        # Fix checkbox appearance to show checkmarks instead of X
+        # Fix checkbox appearance
         style.map('TCheckbutton',
                   background=[('active', COLORS['frame_bg']),
                               ('!disabled', COLORS['frame_bg'])],
@@ -1358,7 +1482,7 @@ class AIStreamerGUI:
         header_frame.pack(fill='x')
         header_frame.pack_propagate(False)
 
-        title_label = tk.Label(header_frame, text="Lace's Simple TTS App",
+        title_label = tk.Label(header_frame, text=APP_NAME,
                                font=self.title_font, bg=COLORS['accent'], fg='white')
         title_label.pack(expand=True)
 
@@ -1570,7 +1694,7 @@ class AIStreamerGUI:
         ttk.Checkbutton(settings_grid, text="Generate AI response after reading",
                         variable=self.ai_response_var).grid(row=3, column=0, columnspan=2, sticky='w', padx=20, pady=2)
 
-        # AI Response Settings (only applies when AI response is enabled)
+        # AI Response Settings
         ttk.Label(settings_grid, text="🤖 AI Response Settings:", font=self.header_font).grid(row=4, column=0,
                                                                                              columnspan=2, sticky='w',
                                                                                              pady=(15, 10))
@@ -1593,7 +1717,7 @@ class AIStreamerGUI:
         self.cooldown_spinbox.set(self.config.get("twitch_cooldown", 5))
 
     def create_settings_tab(self):
-        """Create organized settings with cards"""
+        """Create organized settings with ALL original options"""
         # Create scrollable container
         canvas = tk.Canvas(self.settings_frame, bg=COLORS['frame_bg'])
         scrollbar = ttk.Scrollbar(self.settings_frame, orient="vertical", command=canvas.yview)
@@ -1611,7 +1735,7 @@ class AIStreamerGUI:
         settings_container = ttk.Frame(scrollable_frame)
         settings_container.pack(fill='both', expand=True, padx=20, pady=20)
 
-        # Quick Setup Instructions Card (NEW)
+        # Quick Setup Instructions Card
         setup_card = ttk.LabelFrame(settings_container, text="📚 Quick Setup Guide")
         setup_card.grid(row=0, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
 
@@ -1627,7 +1751,7 @@ class AIStreamerGUI:
 • OAuth: Get from twitchapps.com/tmi/ (keep 'oauth:' prefix)
 • Channel: Channel name to monitor (without #)
 
-🎤 Voice: Hold V key to talk → Release to get AI response
+🎤 Voice: Hold V key to talk → Release to get AI response (uses local Whisper)
 📹 OBS: Add Image Source → Point to 'current_avatar.png' → Check 'Unload when not showing'"""
 
         setup_text.insert('1.0', setup_instructions)
@@ -1666,7 +1790,7 @@ class AIStreamerGUI:
         self.azure_region_entry.grid(row=4, column=1, sticky='w', padx=5, pady=5)
         self.azure_region_entry.insert(0, self.config.get("azure_tts_region", "eastus"))
 
-        # Voice Settings Card (ENHANCED)
+        # Voice Settings Card
         voice_card = ttk.LabelFrame(settings_container, text="🎤 Voice Settings")
         voice_card.grid(row=1, column=1, sticky='ew', padx=5, pady=5)
 
@@ -1704,8 +1828,7 @@ class AIStreamerGUI:
                                                                                    sticky='w', pady=(10, 5))
 
         ttk.Label(voice_card, text="Threshold:").grid(row=4, column=0, sticky='w', padx=10, pady=5)
-        if not hasattr(self, 'mic_sensitivity_var'):
-            self.mic_sensitivity_var = tk.IntVar(value=self.config.get("mic_energy_threshold", 500))
+        self.mic_sensitivity_var = tk.IntVar(value=self.config.get("mic_energy_threshold", 500))
         sensitivity_scale = ttk.Scale(voice_card, from_=100, to=4000, orient='horizontal',
                                       variable=self.mic_sensitivity_var, length=150)
         sensitivity_scale.grid(row=4, column=1, sticky='w', pady=5)
@@ -1722,21 +1845,22 @@ class AIStreamerGUI:
         ttk.Label(voice_card, text="Voice Input Options:", font=self.header_font).grid(row=6, column=0, columnspan=2,
                                                                                        sticky='w', pady=(10, 5))
 
-        if not hasattr(self, 'voice_capture_screen_var'):
-            self.voice_capture_screen_var = tk.BooleanVar(value=self.config.get("voice_capture_screen", False))
+        self.voice_capture_screen_var = tk.BooleanVar(value=self.config.get("voice_capture_screen", False))
         ttk.Checkbutton(voice_card, text="Include screen capture with voice",
                         variable=self.voice_capture_screen_var).grid(row=7, column=0, columnspan=2, sticky='w', padx=20,
                                                                      pady=2)
 
+        # Speech Recognition Settings
         ttk.Label(voice_card, text="Speech Recognition:", font=self.header_font).grid(
             row=8, column=0, columnspan=2, sticky='w', pady=(15, 5))
 
-        ttk.Label(voice_card, text="Provider:").grid(row=9, column=0, sticky='w', padx=10, pady=5)
-        self.speech_provider_var = tk.StringVar(value=self.config.get("speech_provider", "auto"))
-        speech_provider_combo = ttk.Combobox(voice_card, textvariable=self.speech_provider_var,
-                                             width=20, state='readonly',
-                                             values=["auto", "google", "whisper_api", "whisper_local", "azure"])
-        speech_provider_combo.grid(row=9, column=1, sticky='w', padx=5, pady=5)
+        # Whisper model size
+        ttk.Label(voice_card, text="Whisper model:").grid(row=9, column=0, sticky='w', padx=10, pady=5)
+        self.whisper_model_var = tk.StringVar(value=self.config.get("whisper_model_size", "tiny"))
+        whisper_model_combo = ttk.Combobox(voice_card, textvariable=self.whisper_model_var,
+                                           width=20, state='readonly',
+                                           values=["tiny", "base", "small", "medium", "large"])
+        whisper_model_combo.grid(row=9, column=1, sticky='w', padx=5, pady=5)
 
         # Noise reduction option
         self.noise_reduction_var = tk.BooleanVar(value=self.config.get("noise_reduction", True))
@@ -1750,17 +1874,9 @@ class AIStreamerGUI:
                         variable=self.normalize_audio_var).grid(row=11, column=0, columnspan=2,
                                                                 sticky='w', padx=20, pady=2)
 
-        # Whisper model size (if using local Whisper)
-        ttk.Label(voice_card, text="Whisper model:").grid(row=12, column=0, sticky='w', padx=10, pady=5)
-        self.whisper_model_var = tk.StringVar(value=self.config.get("whisper_model_size", "base"))
-        whisper_model_combo = ttk.Combobox(voice_card, textvariable=self.whisper_model_var,
-                                           width=20, state='readonly',
-                                           values=["tiny", "base", "small", "medium", "large"])
-        whisper_model_combo.grid(row=12, column=1, sticky='w', padx=5, pady=5)
-
         # Button frame for voice actions
         voice_button_frame = ttk.Frame(voice_card)
-        voice_button_frame.grid(row=8, column=0, columnspan=3, pady=10)
+        voice_button_frame.grid(row=12, column=0, columnspan=3, pady=10)
 
         StyledButton(voice_button_frame, text="🔊 Test Voice",
                      command=self.test_current_voice,
@@ -1842,7 +1958,26 @@ class AIStreamerGUI:
         StyledButton(avatar_card, text="Browse", command=lambda: self.browse_image("speaking"),
                      bg=COLORS['info'], font=self.small_font).grid(row=1, column=2, padx=5, pady=5)
 
-        # AI Configuration Card (EXPANDED)
+        # Animation Settings
+        ttk.Label(avatar_card, text="Animation:", font=self.header_font).grid(row=2, column=0, columnspan=3,
+                                                                              sticky='w', pady=(10, 5))
+
+        self.enable_animations_var = tk.BooleanVar(value=self.config.get("enable_animations", True))
+        ttk.Checkbutton(avatar_card, text="Enable smooth transitions",
+                        variable=self.enable_animations_var).grid(row=3, column=0, columnspan=3,
+                                                                  sticky='w', padx=20, pady=2)
+
+        ttk.Label(avatar_card, text="Animation speed:").grid(row=4, column=0, sticky='w', padx=10, pady=5)
+        self.animation_speed_var = tk.DoubleVar(value=self.config.get("animation_speed", 0.3))
+        animation_scale = ttk.Scale(avatar_card, from_=0.1, to=1.0, orient='horizontal',
+                                    variable=self.animation_speed_var, length=150)
+        animation_scale.grid(row=4, column=1, sticky='w', pady=5)
+        self.animation_label = ttk.Label(avatar_card, text=f"{self.animation_speed_var.get():.1f}s")
+        self.animation_label.grid(row=4, column=2, padx=5)
+
+        animation_scale.configure(command=lambda v: self.animation_label.config(text=f"{float(v):.1f}s"))
+
+        # AI Configuration Card
         ai_config_card = ttk.LabelFrame(settings_container, text="🧠 AI Configuration")
         ai_config_card.grid(row=4, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
 
@@ -1884,6 +2019,42 @@ class AIStreamerGUI:
         self.save_history_var = tk.BooleanVar(value=self.config.get("save_conversation_history", True))
         ttk.Checkbutton(ai_grid, text="Save conversation history to file",
                         variable=self.save_history_var).grid(row=5, column=0, columnspan=2, sticky='w', pady=10)
+
+        # Performance Settings
+        ttk.Label(ai_grid, text="Performance:", font=self.header_font).grid(row=6, column=0, columnspan=2,
+                                                                            sticky='w', pady=(15, 10))
+
+        self.performance_mode_var = tk.BooleanVar(value=self.config.get("performance_mode", False))
+        ttk.Checkbutton(ai_grid, text="Performance Mode (faster but lower quality)",
+                        variable=self.performance_mode_var).grid(row=7, column=0, columnspan=2, sticky='w', padx=20)
+
+        self.tts_cache_var = tk.BooleanVar(value=self.config.get("tts_cache_enabled", True))
+        ttk.Checkbutton(ai_grid, text="Cache TTS audio (speeds up repeated phrases)",
+                        variable=self.tts_cache_var).grid(row=8, column=0, columnspan=2, sticky='w', padx=20)
+
+        # ElevenLabs Settings (if using)
+        elevenlabs_frame = ttk.LabelFrame(ai_grid, text="ElevenLabs Voice Settings")
+        elevenlabs_frame.grid(row=9, column=0, columnspan=3, sticky='ew', pady=(15, 10))
+
+        ttk.Label(elevenlabs_frame, text="Stability:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
+        self.stability_var = tk.DoubleVar(value=self.config.get("elevenlabs_stability", 0.5))
+        stability_scale = ttk.Scale(elevenlabs_frame, from_=0, to=1, orient='horizontal',
+                                    variable=self.stability_var, length=150)
+        stability_scale.grid(row=0, column=1, pady=5)
+        self.stability_label = ttk.Label(elevenlabs_frame, text=f"{self.stability_var.get():.2f}")
+        self.stability_label.grid(row=0, column=2, padx=10)
+
+        stability_scale.configure(command=lambda v: self.stability_label.config(text=f"{float(v):.2f}"))
+
+        ttk.Label(elevenlabs_frame, text="Similarity:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        self.similarity_var = tk.DoubleVar(value=self.config.get("elevenlabs_similarity", 0.75))
+        similarity_scale = ttk.Scale(elevenlabs_frame, from_=0, to=1, orient='horizontal',
+                                     variable=self.similarity_var, length=150)
+        similarity_scale.grid(row=1, column=1, pady=5)
+        self.similarity_label = ttk.Label(elevenlabs_frame, text=f"{self.similarity_var.get():.2f}")
+        self.similarity_label.grid(row=1, column=2, padx=10)
+
+        similarity_scale.configure(command=lambda v: self.similarity_label.config(text=f"{float(v):.2f}"))
 
         # System Prompt Card
         prompt_card = ttk.LabelFrame(settings_container, text="💭 AI Personality & Instructions")
@@ -2149,7 +2320,7 @@ class AIStreamerGUI:
                     # Messages are already handled by the callback
                     time.sleep(0.1)
                 except Exception as e:
-                    print(f"Twitch monitor error: {e}")
+                    logger.error(f"Twitch monitor error: {e}")
                     time.sleep(1)
 
         self.twitch_monitor_thread = threading.Thread(target=monitor_thread, daemon=True)
@@ -2188,6 +2359,7 @@ class AIStreamerGUI:
 2. Voice Control
    • Hold the V key to record your voice
    • Release to process and get AI response
+   • Uses local Whisper for speech recognition
 
 3. Optional: Connect to Twitch
    • Enter your Twitch credentials in Settings
@@ -2236,7 +2408,7 @@ Have fun streaming!"""
 
                     time.sleep(0.05)  # Small delay to prevent high CPU usage
                 except Exception as e:
-                    print(f"PTT error: {e}")
+                    logger.error(f"PTT error: {e}")
                     time.sleep(0.1)
 
         thread = threading.Thread(target=ptt_listener, daemon=True)
@@ -2244,7 +2416,7 @@ Have fun streaming!"""
 
     def start_voice_recording(self):
         """Start recording voice with visual feedback"""
-        if self.is_listening or self.is_speaking:
+        if self.is_listening or self.is_speaking or not self.speech_recognition:
             return
 
         self.is_listening = True
@@ -2263,7 +2435,7 @@ Have fun streaming!"""
             device_index = None
 
         # Start continuous recording
-        success = self.speech_recognition.recorder.start_recording(device_index)
+        success = self.speech_recognition.start_recording(device_index)
         if not success:
             self.message_queue.put(("system", "Failed to start recording. Check your microphone."))
             self.is_listening = False
@@ -2271,7 +2443,7 @@ Have fun streaming!"""
 
     def stop_voice_recording(self):
         """Stop recording and process the audio"""
-        if not self.is_listening:
+        if not self.is_listening or not self.speech_recognition:
             return
 
         self.is_listening = False
@@ -2287,23 +2459,28 @@ Have fun streaming!"""
         # Process recording in thread
         def process_thread():
             try:
-                print("Stopping recording and transcribing...")
+                start_time = time.time()
+                logger.info("Stopping recording and transcribing...")
 
                 # Stop recording and get audio
-                audio_data = self.speech_recognition.recorder.stop_recording()
+                audio_data = self.speech_recognition.stop_recording()
 
                 if audio_data:
-                    # Transcribe with enhanced recognition
+                    # Transcribe with Whisper
                     text = self.speech_recognition.transcribe_audio(audio_data)
 
+                    transcription_time = time.time() - start_time
+                    self.performance_monitor.record_metric('transcription_time', transcription_time)
+
                     if text and text.strip():
-                        print(f"Successfully transcribed: {text}")
+                        logger.info(f"Successfully transcribed: {text}")
                         # Show what was heard
                         self.message_queue.put(("user", f"[Voice]: {text}"))
 
                         # Check if we should include screen capture
                         include_screen = self.config.get("voice_capture_screen", False)
 
+                        ai_start = time.time()
                         if include_screen:
                             # Get screen capture
                             screen_b64 = ScreenCapture.capture_screen_base64()
@@ -2318,17 +2495,23 @@ Have fun streaming!"""
                             # Just use voice input without screen
                             response = self.ai.get_response(f"User said: {text}")
 
+                        ai_time = time.time() - ai_start
+                        self.performance_monitor.record_metric('ai_response_time', ai_time)
+
                         self.message_queue.put(("ai", response))
+
+                        total_time = time.time() - start_time
+                        self.performance_monitor.record_metric('total_response_time', total_time)
+                        logger.info(f"Total response time: {total_time:.2f}s")
                     else:
-                        print("No speech detected or transcription failed")
-                        provider_name = self.speech_recognition.provider.value
+                        logger.warning("No speech detected or transcription failed")
                         self.message_queue.put(("system",
-                                                f"No speech detected using {provider_name}.\n"
+                                                f"No speech detected.\n"
                                                 f"Tips:\n"
                                                 f"• Speak clearly and at normal volume\n"
                                                 f"• Check microphone selection in Settings\n"
                                                 f"• Try adjusting Mic Sensitivity\n"
-                                                f"• Consider enabling Noise Reduction"))
+                                                f"• Consider using a larger Whisper model"))
                 else:
                     self.message_queue.put(("system", "No audio was recorded"))
 
@@ -2336,7 +2519,7 @@ Have fun streaming!"""
                 self.update_status("Voice", "Ready", COLORS['success'])
 
             except Exception as e:
-                print(f"Processing error: {e}")
+                logger.error(f"Processing error: {e}")
                 import traceback
                 traceback.print_exc()
                 self.message_queue.put(("system", f"Voice processing error: {str(e)}"))
@@ -2356,7 +2539,6 @@ Have fun streaming!"""
                 if self.is_listening:
                     # Create a pulsing effect to show recording is active
                     import math
-                    import time
                     pulse = int(100 + 80 * math.sin(time.time() * 3))
                     self.voice_indicator.coords(self.voice_level, 0, 5, pulse, 25)
                     self.voice_indicator.itemconfig(self.voice_level, fill=COLORS['error'])
@@ -2436,65 +2618,27 @@ Have fun streaming!"""
 
         def test_thread():
             try:
-                # Test basic microphone access
-                if not SPEECH_RECOGNITION_AVAILABLE:
-                    self.message_queue.put(("system", "❌ Speech recognition module not installed!"))
+                if not self.speech_recognition:
+                    self.message_queue.put(("system", "❌ Speech recognition not available!"))
                     return
 
-                if not PYAUDIO_AVAILABLE:
-                    self.message_queue.put(
-                        ("system", "❌ PyAudio not installed! Please install it for microphone support."))
-                    return
+                # Test recording
+                self.speech_recognition.start_recording()
+                time.sleep(3)
+                audio = self.speech_recognition.stop_recording()
 
-                # Get device index
-                device_index = self.config.get("input_device_index", -1)
-                if device_index < 0:
-                    device_index = None
-
-                # Try to access microphone
-                recognizer = sr.Recognizer()
-                recognizer.energy_threshold = 1000
-
-                try:
-                    if device_index is not None:
-                        mic = sr.Microphone(device_index=device_index)
-                        self.message_queue.put(("system", f"Using microphone device {device_index}"))
-                    else:
-                        mic = sr.Microphone()
-                        self.message_queue.put(("system", "Using default microphone"))
-
-                    with mic as source:
-                        self.message_queue.put(("system", "Adjusting for ambient noise..."))
-                        recognizer.adjust_for_ambient_noise(source, duration=1)
-                        self.message_queue.put(("system", f"Energy threshold: {recognizer.energy_threshold}"))
-                        self.message_queue.put(("system", "Listening for 5 seconds... Say something!"))
-
-                        audio = recognizer.listen(source, timeout=5, phrase_time_limit=5)
-
-                        self.message_queue.put(("system", "Processing audio..."))
-                        text = recognizer.recognize_google(audio)
+                if audio:
+                    text = self.speech_recognition.transcribe_audio(audio)
+                    if text:
                         self.message_queue.put(("system", f"✅ Microphone works! Heard: '{text}'"))
-
-                except sr.WaitTimeoutError:
-                    self.message_queue.put(
-                        ("system", "⚠️ No speech detected. Microphone may be working but too quiet."))
-                except sr.UnknownValueError:
-                    self.message_queue.put(("system", "⚠️ Microphone detected sound but couldn't understand speech."))
-                except sr.RequestError as e:
-                    self.message_queue.put(("system", f"❌ Google Speech API error: {e}"))
-                except OSError as e:
-                    if "Invalid number of channels" in str(e):
-                        self.message_queue.put(("system",
-                                                "❌ Microphone configuration error. Try selecting a different device in Settings."))
                     else:
-                        self.message_queue.put(("system", f"❌ Microphone access error: {e}"))
-                except Exception as e:
-                    self.message_queue.put(("system", f"❌ Microphone error: {e}"))
+                        self.message_queue.put(("system", "⚠️ Microphone detected sound but couldn't transcribe."))
+                else:
+                    self.message_queue.put(("system", "❌ No audio recorded. Check microphone settings."))
 
             except Exception as e:
                 self.message_queue.put(("system", f"❌ Test failed: {e}"))
-                import traceback
-                print(traceback.format_exc())
+                logger.error(f"Microphone test error: {e}")
 
         thread = threading.Thread(target=test_thread, daemon=True)
         thread.start()
@@ -2521,47 +2665,53 @@ Have fun streaming!"""
             else:
                 self.config.set("speaking_image", filename)
                 self.speaking_path_label.config(text=os.path.basename(filename))
-            self.load_avatar_images()
+
+            # Reload avatar images
+            self.avatar.load_images(
+                self.config.get("idle_image", "idle.png"),
+                self.config.get("speaking_image", "speaking.png")
+            )
             self.obs_output.update_obs_image("idle")
 
     def load_avatar_images(self):
-        """Load and prepare avatar images"""
-        try:
-            idle_path = self.config.get("idle_image")
-            if idle_path and os.path.exists(idle_path):
-                idle_img = Image.open(idle_path)
-                idle_img.thumbnail((300, 300), Image.Resampling.LANCZOS)
-                self.idle_photo = ImageTk.PhotoImage(idle_img)
-            else:
-                self.idle_photo = None
+        """Load and display avatar images"""
+        if self.avatar and self.avatar.idle_image:
+            self.update_avatar_display()
 
-            speaking_path = self.config.get("speaking_image")
-            if speaking_path and os.path.exists(speaking_path):
-                speaking_img = Image.open(speaking_path)
-                speaking_img.thumbnail((300, 300), Image.Resampling.LANCZOS)
-                self.speaking_photo = ImageTk.PhotoImage(speaking_img)
-            else:
-                self.speaking_photo = None
+    def update_avatar_display(self):
+        """Update avatar display with current frame"""
+        if self.avatar and self.avatar.current_image:
+            photo = ImageTk.PhotoImage(self.avatar.current_image)
+            self.avatar_label.config(image=photo, text="")
+            self.avatar_label.image = photo  # Keep reference
 
-            self.show_idle_image()
-        except Exception as e:
-            print(f"Error loading images: {e}")
+            # Update OBS output
+            if self.config.get("enable_animations", True):
+                self.obs_output.update_obs_image()
+
+        # Schedule next update if animations enabled
+        if self.config.get("enable_animations", True):
+            self.root.after(33, self.update_avatar_display)  # ~30 FPS
 
     def show_idle_image(self):
         """Display the idle image"""
-        if self.idle_photo:
-            self.avatar_label.config(image=self.idle_photo, text="")
-        else:
-            self.avatar_label.config(image="", text="No idle image", bg='white')
+        if self.avatar:
+            if self.config.get("enable_animations", True):
+                self.avatar.transition(to_speaking=False,
+                                       duration=self.config.get("animation_speed", 0.3))
+            else:
+                self.avatar.is_speaking = False
         self.is_speaking = False
         self.obs_output.update_obs_image("idle")
 
     def show_speaking_image(self):
         """Display the speaking image"""
-        if self.speaking_photo:
-            self.avatar_label.config(image=self.speaking_photo, text="")
-        else:
-            self.avatar_label.config(image="", text="No speaking image", bg='white')
+        if self.avatar:
+            if self.config.get("enable_animations", True):
+                self.avatar.transition(to_speaking=True,
+                                       duration=self.config.get("animation_speed", 0.3))
+            else:
+                self.avatar.is_speaking = True
         self.is_speaking = True
         self.obs_output.update_obs_image("speaking")
 
@@ -2573,12 +2723,6 @@ Have fun streaming!"""
         self.config.set("elevenlabs_api_key", self.elevenlabs_entry.get())
         self.config.set("azure_tts_key", self.azure_entry.get())
         self.config.set("azure_tts_region", self.azure_region_entry.get())
-        self.config.set("speech_provider", self.speech_provider_var.get())
-        self.config.set("noise_reduction", self.noise_reduction_var.get())
-        self.config.set("normalize_audio", self.normalize_audio_var.get())
-        self.config.set("whisper_model_size", self.whisper_model_var.get())
-
-        self.speech_recognition = create_enhanced_recognizer(self.config)
 
         # Save voice settings
         provider = self.voice_provider_var.get()
@@ -2596,11 +2740,12 @@ Have fun streaming!"""
         self.config.set("voice_name", voice_id)
         self.config.set("push_to_talk_key", self.ptt_key_entry.get())
 
-        # Save mic and voice settings if they exist
-        if hasattr(self, 'mic_sensitivity_var'):
-            self.config.set("mic_energy_threshold", int(self.mic_sensitivity_var.get()))
-        if hasattr(self, 'voice_capture_screen_var'):
-            self.config.set("voice_capture_screen", self.voice_capture_screen_var.get())
+        # Save mic and voice settings
+        self.config.set("mic_energy_threshold", int(self.mic_sensitivity_var.get()))
+        self.config.set("voice_capture_screen", self.voice_capture_screen_var.get())
+        self.config.set("whisper_model_size", self.whisper_model_var.get())
+        self.config.set("noise_reduction", self.noise_reduction_var.get())
+        self.config.set("normalize_audio", self.normalize_audio_var.get())
 
         # Save Twitch settings
         self.config.set("twitch_username", self.twitch_username_entry.get())
@@ -2611,15 +2756,24 @@ Have fun streaming!"""
         self.config.set("twitch_ai_response", self.ai_response_var.get())
         self.config.set("twitch_response_chance", self.response_chance_var.get() / 100.0)
         self.config.set("twitch_cooldown", int(self.cooldown_spinbox.get()))
-        self.config.set("commentary_interval",
-                        int(self.interval_spinbox.get()) if hasattr(self, 'interval_spinbox') else 15)
-        self.config.set("system_prompt", self.prompt_text.get('1.0', 'end-1c'))
+        self.config.set("commentary_interval", int(self.interval_spinbox.get()))
 
-        # Save AI configuration settings
+        # Save AI configuration
+        self.config.set("system_prompt", self.prompt_text.get('1.0', 'end-1c'))
         self.config.set("ai_memory_messages", int(self.memory_spinbox.get()))
         self.config.set("ai_max_tokens", int(self.tokens_spinbox.get()))
         self.config.set("ai_temperature", float(self.temperature_var.get()))
         self.config.set("save_conversation_history", self.save_history_var.get())
+
+        # Save performance settings
+        self.config.set("performance_mode", self.performance_mode_var.get())
+        self.config.set("tts_cache_enabled", self.tts_cache_var.get())
+        self.config.set("enable_animations", self.enable_animations_var.get())
+        self.config.set("animation_speed", float(self.animation_speed_var.get()))
+
+        # Save ElevenLabs settings
+        self.config.set("elevenlabs_stability", float(self.stability_var.get()))
+        self.config.set("elevenlabs_similarity", float(self.similarity_var.get()))
 
         # Save audio device selections
         if hasattr(self, 'input_devices'):
@@ -2643,12 +2797,15 @@ Have fun streaming!"""
                         AudioDeviceManager.set_pygame_output_device(device['index'])
                         break
 
+        # Update UI elements
         if hasattr(self, 'ptt_label'):
             self.ptt_label.config(text=f"Hold [{self.ptt_key_entry.get().upper()}] to talk")
 
         # Re-initialize managers with new settings
         self.tts.init_tts()
         self.ai.init_ai()
+        if self.speech_recognition:
+            self.speech_recognition.set_model_size(self.whisper_model_var.get())
 
         messagebox.showinfo("Success", "Settings saved successfully! 💜")
 
@@ -2725,6 +2882,7 @@ Have fun streaming!"""
 
     def run(self):
         """Start the application"""
+        logger.info(f"Starting {APP_NAME} v{APP_VERSION}")
         self.root.mainloop()
 
 

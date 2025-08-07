@@ -1,0 +1,33 @@
+2025-08-07 10:14:35,873 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 10:14:35,985 - INFO - Loaded idle image: idle.png
+2025-08-07 10:14:36,031 - INFO - Loaded speaking image: speaking.png
+2025-08-07 10:14:36,074 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 10:14:36,074 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 10:14:36,355 - INFO - OpenAI client initialized
+2025-08-07 10:26:20,049 - INFO - Starting Lace's Simple TTS App v1.0.0
+2025-08-07 10:26:20,448 - INFO - Loaded idle image: idle.png
+2025-08-07 10:26:20,497 - INFO - Loaded speaking image: speaking.png
+2025-08-07 10:26:20,548 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 10:26:20,548 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 10:26:20,916 - INFO - OpenAI client initialized
+2025-08-07 10:27:21,354 - ERROR - Processing error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmpl9ottryq.wav'
+2025-08-07 10:27:34,744 - ERROR - Processing error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmpqovqu785.wav'
+2025-08-07 10:27:42,713 - ERROR - Processing error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmprvo36079.wav'
+2025-08-07 10:27:48,333 - ERROR - Processing error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmpw85dymj3.wav'
+2025-08-07 10:27:48,482 - ERROR - Processing error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmpaakorsd3.wav'
+2025-08-07 10:27:56,429 - ERROR - Processing error: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\tmpvv4pjo1n.wav'
+2025-08-07 10:28:59,627 - WARNING - Slow tts_time: 5.47s
+2025-08-07 10:29:06,888 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-08-07 10:29:06,892 - WARNING - Slow ai_response_time: 3.87s
+2025-08-07 10:29:25,130 - WARNING - Slow tts_time: 18.22s
+2025-08-07 16:52:40,802 - INFO - ElevenLabs new API detected
+2025-08-07 16:52:41,086 - INFO - Loaded idle image: idle.png
+2025-08-07 16:52:41,132 - INFO - Loaded speaking image: speaking.png
+2025-08-07 16:52:41,179 - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-08-07 16:52:41,180 - INFO - Using writeable comtypes cache directory: 'C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+2025-08-07 16:52:41,239 - INFO - Fetching ElevenLabs voices...
+2025-08-07 16:52:41,552 - INFO - Loaded 25 ElevenLabs voices
+2025-08-07 16:52:41,771 - INFO - OpenAI client initialized
+2025-08-07 16:52:43,623 - INFO - Found 33 audio devices
+2025-08-07 16:52:43,623 - INFO - Found 13 input devices and 20 output devices
+2025-08-07 16:52:43,777 - INFO - Starting Lace's Simple TTS App v1.0.0
