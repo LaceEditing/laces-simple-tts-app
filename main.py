@@ -49,19 +49,29 @@ try:
 except ImportError:
     SPEECH_RECOGNITION_AVAILABLE = False
 
+# ElevenLabs has different APIs depending on version
+ELEVENLABS_AVAILABLE = False
+ELEVENLABS_OLD_API = False
+
 try:
-    from elevenlabs import client as elevenlabs_client, VoiceSettings
+    # Try new API first
+    from elevenlabs import ElevenLabs, VoiceSettings, Voice
 
     ELEVENLABS_AVAILABLE = True
+    ELEVENLABS_OLD_API = False
+    print("ElevenLabs new API detected")
 except ImportError:
     try:
+        # Try old API
         from elevenlabs import generate, save, set_api_key, voices
 
         ELEVENLABS_AVAILABLE = True
         ELEVENLABS_OLD_API = True
+        print("ElevenLabs old API detected")
     except ImportError:
         ELEVENLABS_AVAILABLE = False
         ELEVENLABS_OLD_API = False
+        print("ElevenLabs not installed")
 
 try:
     import azure.cognitiveservices.speech as speechsdk
@@ -215,7 +225,9 @@ DEFAULT_CONFIG = {
     "ai_temperature": 0.7,  # AI creativity level
     "save_conversation_history": True,  # Save conversation to file
     "elevenlabs_stability": 0.5,
-    "elevenlabs_similarity": 0.75
+    "elevenlabs_similarity": 0.75,
+    "mic_energy_threshold": 500,  # Microphone sensitivity
+    "voice_capture_screen": False  # Include screen with voice input
 }
 
 
@@ -555,7 +567,6 @@ class TTSManager:
     def __init__(self, config_manager):
         self.config = config_manager
         self.engine = None
-        self.elevenlabs_client = None
         self.azure_config = None
         self.is_speaking = False
         self.speech_queue = queue.Queue()
@@ -583,16 +594,9 @@ class TTSManager:
             except Exception as e:
                 print(f"Error initializing pyttsx3: {e}")
 
-        # Initialize ElevenLabs if API key is available
-        if ELEVENLABS_AVAILABLE and self.config.get("elevenlabs_api_key"):
-            try:
-                if not ELEVENLABS_OLD_API:
-                    from elevenlabs import ElevenLabs
-                    self.elevenlabs_client = ElevenLabs(api_key=self.config.get("elevenlabs_api_key"))
-                else:
-                    set_api_key(self.config.get("elevenlabs_api_key"))
-            except Exception as e:
-                print(f"Error initializing ElevenLabs: {e}")
+        # Fetch ElevenLabs voices if API key is available
+        if self.config.get("elevenlabs_api_key"):
+            self.fetch_elevenlabs_voices()
 
         # Initialize Azure if API key is available
         if AZURE_AVAILABLE and self.config.get("azure_tts_key"):
@@ -603,6 +607,50 @@ class TTSManager:
                 )
             except Exception as e:
                 print(f"Error initializing Azure: {e}")
+
+    def fetch_elevenlabs_voices(self):
+        """Fetch available voices from ElevenLabs API"""
+        try:
+            print("Fetching ElevenLabs voices...")
+            api_key = self.config.get("elevenlabs_api_key")
+
+            if not api_key:
+                print("No ElevenLabs API key provided")
+                return
+
+            # Try direct API call which works with any version
+            import requests
+            headers = {"xi-api-key": api_key}
+            response = requests.get("https://api.elevenlabs.io/v1/voices", headers=headers)
+
+            if response.status_code == 200:
+                voices_data = response.json()
+                VOICE_OPTIONS["elevenlabs"]["voices"] = {}
+                for voice in voices_data.get("voices", []):
+                    VOICE_OPTIONS["elevenlabs"]["voices"][voice["voice_id"]] = voice["name"]
+                print(f"Loaded {len(voices_data.get('voices', []))} ElevenLabs voices")
+            elif response.status_code == 401:
+                print("Invalid ElevenLabs API key")
+                # Keep default voices as fallback
+                VOICE_OPTIONS["elevenlabs"]["voices"] = {
+                    "21m00Tcm4TlvDq8ikWAM": "Rachel",
+                    "AZnzlk1XvdvUeBnXmlld": "Domi",
+                    "EXAVITQu4vr4xnSDxMaL": "Bella",
+                    "ErXwobaYiN019PkySvjV": "Antoni",
+                    "MF3mGyEYCl7XYWbV9V6O": "Elli",
+                    "TxGEqnHWrfWFTfGW9XjX": "Josh",
+                    "VR6AewLTigWG4xSOukaG": "Arnold",
+                    "pNInz6obpgDQGcFmaJgB": "Adam",
+                    "yoZ06aMxZJJ28mfd3POQ": "Sam"
+                }
+            else:
+                print(f"Error fetching ElevenLabs voices: {response.status_code}")
+                # Keep default voices as fallback
+
+        except Exception as e:
+            print(f"Error fetching ElevenLabs voices: {e}")
+            # Keep default voices as fallback
+            print("Using default ElevenLabs voice list")
 
     def start_speech_processor(self):
         """Start a thread to process speech queue"""
@@ -671,47 +719,49 @@ class TTSManager:
 
     def _speak_elevenlabs(self, text, voice, callback):
         """Use ElevenLabs API for speech"""
-        if not self.config.get("elevenlabs_api_key"):
+        api_key = self.config.get("elevenlabs_api_key")
+        if not api_key:
             self._speak_streamelements(text, "Brian", callback)
             return
 
         try:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-            temp_file.close()
+            # Use direct API call which works consistently
+            import requests
 
-            if not ELEVENLABS_OLD_API and self.elevenlabs_client:
-                # New API
-                audio = self.elevenlabs_client.generate(
-                    text=text,
-                    voice=voice,
-                    model="eleven_monolingual_v1",
-                    voice_settings=VoiceSettings(
-                        stability=self.config.get("elevenlabs_stability", 0.5),
-                        similarity_boost=self.config.get("elevenlabs_similarity", 0.75)
-                    )
-                )
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
+            headers = {
+                "xi-api-key": api_key,
+                "Content-Type": "application/json"
+            }
+            data = {
+                "text": text,
+                "model_id": "eleven_monolingual_v1",
+                "voice_settings": {
+                    "stability": self.config.get("elevenlabs_stability", 0.5),
+                    "similarity_boost": self.config.get("elevenlabs_similarity", 0.75)
+                }
+            }
 
-                with open(temp_file.name, 'wb') as f:
-                    for chunk in audio:
-                        f.write(chunk)
+            response = requests.post(url, json=data, headers=headers)
+
+            if response.status_code == 200:
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                temp_file.write(response.content)
+                temp_file.close()
+
+                if PYGAME_AVAILABLE:
+                    pygame.mixer.music.load(temp_file.name)
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.1)
+                    os.remove(temp_file.name)
+
+                if callback:
+                    callback()
             else:
-                # Old API
-                audio = generate(
-                    text=text,
-                    voice=voice,
-                    model="eleven_monolingual_v1"
-                )
-                save(audio, temp_file.name)
+                print(f"ElevenLabs API error: {response.status_code} - {response.text}")
+                self._speak_streamelements(text, "Brian", callback)
 
-            if PYGAME_AVAILABLE:
-                pygame.mixer.music.load(temp_file.name)
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)
-                os.remove(temp_file.name)
-
-            if callback:
-                callback()
         except Exception as e:
             print(f"ElevenLabs error: {e}")
             self._speak_streamelements(text, "Brian", callback)
@@ -806,17 +856,27 @@ class EnhancedSpeechRecognition:
 
         if SPEECH_RECOGNITION_AVAILABLE:
             self.recognizer = sr.Recognizer()
-            # Lower the energy threshold for better sensitivity
-            self.recognizer.energy_threshold = 500  # Lower threshold
+            # Default energy threshold (will be overridden by config)
+            self.recognizer.energy_threshold = 500
             self.recognizer.dynamic_energy_threshold = False  # Disable dynamic adjustment for consistency
             self.recognizer.pause_threshold = 1.5  # How long to wait for pause
-            print(f"Speech recognizer initialized with energy threshold: {self.recognizer.energy_threshold}")
+            print(f"Speech recognizer initialized with default energy threshold: {self.recognizer.energy_threshold}")
 
-    def start_recording(self, device_index=None):
+    def set_energy_threshold(self, threshold):
+        """Set the energy threshold for speech detection"""
+        if self.recognizer:
+            self.recognizer.energy_threshold = threshold
+            print(f"Energy threshold set to: {threshold}")
+
+    def start_recording(self, device_index=None, energy_threshold=None):
         """Start recording audio"""
         if not SPEECH_RECOGNITION_AVAILABLE or not self.recognizer:
             print("Speech recognition not available")
             return False
+
+        # Set energy threshold if provided
+        if energy_threshold is not None:
+            self.set_energy_threshold(energy_threshold)
 
         self.is_recording = True
         self.recorded_audio = None
@@ -836,10 +896,10 @@ class EnhancedSpeechRecognition:
                     # Quick adjustment for ambient noise
                     print("Adjusting for ambient noise...")
                     self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    # Keep threshold low for sensitivity
-                    if self.recognizer.energy_threshold > 1000:
-                        self.recognizer.energy_threshold = 500
-                    print(f"Energy threshold set to: {self.recognizer.energy_threshold}")
+                    # Keep the user-specified threshold
+                    if energy_threshold is not None:
+                        self.recognizer.energy_threshold = energy_threshold
+                    print(f"Energy threshold: {self.recognizer.energy_threshold}")
 
                     print("Listening for speech...")
                     # Keep listening while the button is held
@@ -1146,6 +1206,7 @@ class AIStreamerGUI:
         self.read_message_var = tk.BooleanVar(value=self.config.get("twitch_read_message", True))
         self.ai_response_var = tk.BooleanVar(value=self.config.get("twitch_ai_response", True))
         self.response_chance_var = tk.IntVar(value=int(self.config.get("twitch_response_chance", 0.8) * 100))
+        self.save_history_var = tk.BooleanVar(value=self.config.get("save_conversation_history", True))
 
         # Create GUI
         self.create_gui()
@@ -1607,10 +1668,46 @@ class AIStreamerGUI:
         self.ptt_key_entry.grid(row=2, column=1, sticky='w', padx=5, pady=5)
         self.ptt_key_entry.insert(0, self.config.get("push_to_talk_key", "v"))
 
-        # Test voice button
-        StyledButton(voice_card, text="🔊 Test Voice",
+        # Microphone sensitivity
+        ttk.Label(voice_card, text="Mic Sensitivity:", font=self.header_font).grid(row=3, column=0, columnspan=2,
+                                                                                   sticky='w', pady=(10, 5))
+
+        ttk.Label(voice_card, text="Threshold:").grid(row=4, column=0, sticky='w', padx=10, pady=5)
+        if not hasattr(self, 'mic_sensitivity_var'):
+            self.mic_sensitivity_var = tk.IntVar(value=self.config.get("mic_energy_threshold", 500))
+        sensitivity_scale = ttk.Scale(voice_card, from_=100, to=4000, orient='horizontal',
+                                      variable=self.mic_sensitivity_var, length=150)
+        sensitivity_scale.grid(row=4, column=1, sticky='w', pady=5)
+        self.sensitivity_label = ttk.Label(voice_card, text=f"{self.mic_sensitivity_var.get()}")
+        self.sensitivity_label.grid(row=4, column=2, padx=5)
+
+        # Update sensitivity label
+        sensitivity_scale.configure(command=lambda v: self.sensitivity_label.config(text=f"{int(float(v))}"))
+
+        ttk.Label(voice_card, text="(Lower = more sensitive)", font=self.small_font, foreground=COLORS['info']).grid(
+            row=5, column=0, columnspan=2, sticky='w', padx=20)
+
+        # Voice options
+        ttk.Label(voice_card, text="Voice Input Options:", font=self.header_font).grid(row=6, column=0, columnspan=2,
+                                                                                       sticky='w', pady=(10, 5))
+
+        if not hasattr(self, 'voice_capture_screen_var'):
+            self.voice_capture_screen_var = tk.BooleanVar(value=self.config.get("voice_capture_screen", False))
+        ttk.Checkbutton(voice_card, text="Include screen capture with voice",
+                        variable=self.voice_capture_screen_var).grid(row=7, column=0, columnspan=2, sticky='w', padx=20,
+                                                                     pady=2)
+
+        # Button frame for voice actions
+        voice_button_frame = ttk.Frame(voice_card)
+        voice_button_frame.grid(row=8, column=0, columnspan=3, pady=10)
+
+        StyledButton(voice_button_frame, text="🔊 Test Voice",
                      command=self.test_current_voice,
-                     font=self.small_font).grid(row=3, column=0, columnspan=2, pady=10)
+                     font=self.small_font).pack(side='left', padx=5)
+
+        StyledButton(voice_button_frame, text="🔄 Refresh Voices",
+                     command=self.refresh_voice_list,
+                     font=self.small_font, bg=COLORS['info']).pack(side='left', padx=5)
 
         # Audio Device Settings Card
         audio_card = ttk.LabelFrame(settings_container, text="🔊 Audio Devices")
@@ -1779,6 +1876,21 @@ class AIStreamerGUI:
         StyledButton(input_frame, text="Send", command=self.send_chat_message).pack(side='left', padx=5)
         StyledButton(input_frame, text="Clear", command=self.clear_log,
                      bg=COLORS['error']).pack(side='left')
+
+    def refresh_voice_list(self):
+        """Refresh the voice list from APIs"""
+        # Save current settings first
+        self.config.set("elevenlabs_api_key", self.elevenlabs_entry.get())
+        self.config.set("azure_tts_key", self.azure_entry.get())
+        self.config.set("azure_tts_region", self.azure_region_entry.get())
+
+        # Re-initialize TTS to fetch new voices
+        self.tts.init_tts()
+
+        # Update the voice dropdown
+        self.on_voice_provider_changed(None)
+
+        messagebox.showinfo("Success", "Voice list refreshed! Check the Voice dropdown.")
 
     def on_voice_provider_changed(self, event):
         """Handle voice provider change"""
@@ -2084,14 +2196,20 @@ Have fun streaming! 💜"""
                 text=f"Recording... Release [{self.config.get('push_to_talk_key', 'V').upper()}] to stop",
                 foreground=COLORS['error']))
 
-        # Get device index
+        # Get device index and energy threshold
         device_index = self.config.get("input_device_index", -1)
         if device_index < 0:
             device_index = None
 
+        # Get energy threshold from GUI if available, otherwise from config
+        if hasattr(self, 'mic_sensitivity_var'):
+            energy_threshold = self.mic_sensitivity_var.get()
+        else:
+            energy_threshold = self.config.get("mic_energy_threshold", 500)
+
         # Start recording
-        print(f"Starting voice recording with device index: {device_index}")
-        success = self.speech_recognition.start_recording(device_index)
+        print(f"Starting voice recording with device index: {device_index}, threshold: {energy_threshold}")
+        success = self.speech_recognition.start_recording(device_index, energy_threshold)
         if not success:
             self.message_queue.put(("system", "Failed to start recording. Check your microphone."))
             self.is_listening = False
@@ -2124,15 +2242,23 @@ Have fun streaming! 💜"""
                     # Show what was heard
                     self.message_queue.put(("user", f"[Voice]: {text}"))
 
-                    # Get screen capture
-                    screen_b64 = ScreenCapture.capture_screen_base64()
+                    # Check if we should include screen capture
+                    include_screen = self.config.get("voice_capture_screen", False)
 
-                    # Get AI response
-                    prompt = f"User said: {text}"
-                    if screen_b64:
-                        prompt += " (Also consider what's visible on screen)"
+                    if include_screen:
+                        # Get screen capture
+                        screen_b64 = ScreenCapture.capture_screen_base64()
 
-                    response = self.ai.get_response(prompt, screen_b64)
+                        # Get AI response with screen context
+                        prompt = f"User said: {text}"
+                        if screen_b64:
+                            prompt += " (Also consider what's visible on screen)"
+
+                        response = self.ai.get_response(prompt, screen_b64)
+                    else:
+                        # Just use voice input without screen
+                        response = self.ai.get_response(f"User said: {text}")
+
                     self.message_queue.put(("ai", response))
                 else:
                     print("No speech detected or transcription failed")
@@ -2396,6 +2522,12 @@ Have fun streaming! 💜"""
         self.config.set("voice_provider", provider)
         self.config.set("voice_name", voice_id)
         self.config.set("push_to_talk_key", self.ptt_key_entry.get())
+
+        # Save mic and voice settings if they exist
+        if hasattr(self, 'mic_sensitivity_var'):
+            self.config.set("mic_energy_threshold", int(self.mic_sensitivity_var.get()))
+        if hasattr(self, 'voice_capture_screen_var'):
+            self.config.set("voice_capture_screen", self.voice_capture_screen_var.get())
 
         # Save Twitch settings
         self.config.set("twitch_username", self.twitch_username_entry.get())
