@@ -1,9 +1,4 @@
-﻿"""
-Lace's Simple TTS App - AI Streamer Assistant with Twitch Integration
-Beautiful lavender-themed UI with complete streaming features
-"""
-
-import tkinter as tk
+﻿import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox, font
 import json
 import os
@@ -26,6 +21,13 @@ from datetime import datetime
 import sys
 import io
 import wave
+
+from enhanced_speech_recognition import (
+    EnhancedSpeechRecognition,
+    SpeechProvider,
+    AudioConfig,
+    create_enhanced_recognizer
+)
 
 # Optional imports (will check if available)
 try:
@@ -227,7 +229,11 @@ DEFAULT_CONFIG = {
     "elevenlabs_stability": 0.5,
     "elevenlabs_similarity": 0.75,
     "mic_energy_threshold": 500,  # Microphone sensitivity
-    "voice_capture_screen": False  # Include screen with voice input
+    "voice_capture_screen": False,  # Include screen with voice input
+    "speech_provider": "auto",  # auto, google, whisper_api, whisper_local, azure
+    "noise_reduction": True,  # Apply noise reduction to audio
+    "normalize_audio": True,  # Normalize audio levels
+    "whisper_model_size": "base"  # tiny, base, small, medium, large
 }
 
 
@@ -1180,7 +1186,7 @@ class StyledButton(tk.Button):
 
 
 class AIStreamerGUI:
-    """Main GUI Application with beautiful lavender theme"""
+    """Main GUI Application with a similar color to the File Converter I made"""
 
     def __init__(self):
         self.root = tk.Tk()
@@ -1200,13 +1206,21 @@ class AIStreamerGUI:
         # Set style
         self.setup_styles()
 
-        # Initialize managers
-        self.config = ConfigManager()
+        # Initialize managers (CORRECT ORDER - config must come first!)
+        self.config = ConfigManager()  # This MUST be initialized first
         self.conversation_history = ConversationHistory()
         self.tts = TTSManager(self.config)
         self.ai = AIManager(self.config, self.conversation_history)
         self.obs_output = OBSImageOutput(self.config)
-        self.speech_recognition = EnhancedSpeechRecognition()
+
+        # Initialize enhanced speech recognition AFTER config is created
+        try:
+            from enhanced_speech_recognition import create_enhanced_recognizer
+            self.speech_recognition = create_enhanced_recognizer(self.config)
+        except ImportError:
+            print("Enhanced speech recognition module not found, falling back to original")
+            # Fallback to original if enhanced module not available
+            self.speech_recognition = EnhancedSpeechRecognition()
 
         # Initialize Twitch with message callback
         self.twitch = TwitchChat(self.config, self.handle_twitch_message)
@@ -1344,13 +1358,9 @@ class AIStreamerGUI:
         header_frame.pack(fill='x')
         header_frame.pack_propagate(False)
 
-        title_label = tk.Label(header_frame, text="✨ Lace's Simple TTS App ✨",
+        title_label = tk.Label(header_frame, text="Lace's Simple TTS App",
                                font=self.title_font, bg=COLORS['accent'], fg='white')
         title_label.pack(expand=True)
-
-        subtitle_label = tk.Label(header_frame, text="Your AI Streaming Companion 💜",
-                                  font=self.small_font, bg=COLORS['accent'], fg='#F0E6FF')
-        subtitle_label.pack()
 
         # Create notebook for tabs
         notebook = ttk.Notebook(self.root)
@@ -1717,6 +1727,36 @@ class AIStreamerGUI:
         ttk.Checkbutton(voice_card, text="Include screen capture with voice",
                         variable=self.voice_capture_screen_var).grid(row=7, column=0, columnspan=2, sticky='w', padx=20,
                                                                      pady=2)
+
+        ttk.Label(voice_card, text="Speech Recognition:", font=self.header_font).grid(
+            row=8, column=0, columnspan=2, sticky='w', pady=(15, 5))
+
+        ttk.Label(voice_card, text="Provider:").grid(row=9, column=0, sticky='w', padx=10, pady=5)
+        self.speech_provider_var = tk.StringVar(value=self.config.get("speech_provider", "auto"))
+        speech_provider_combo = ttk.Combobox(voice_card, textvariable=self.speech_provider_var,
+                                             width=20, state='readonly',
+                                             values=["auto", "google", "whisper_api", "whisper_local", "azure"])
+        speech_provider_combo.grid(row=9, column=1, sticky='w', padx=5, pady=5)
+
+        # Noise reduction option
+        self.noise_reduction_var = tk.BooleanVar(value=self.config.get("noise_reduction", True))
+        ttk.Checkbutton(voice_card, text="Apply noise reduction",
+                        variable=self.noise_reduction_var).grid(row=10, column=0, columnspan=2,
+                                                                sticky='w', padx=20, pady=2)
+
+        # Audio normalization option
+        self.normalize_audio_var = tk.BooleanVar(value=self.config.get("normalize_audio", True))
+        ttk.Checkbutton(voice_card, text="Normalize audio levels",
+                        variable=self.normalize_audio_var).grid(row=11, column=0, columnspan=2,
+                                                                sticky='w', padx=20, pady=2)
+
+        # Whisper model size (if using local Whisper)
+        ttk.Label(voice_card, text="Whisper model:").grid(row=12, column=0, sticky='w', padx=10, pady=5)
+        self.whisper_model_var = tk.StringVar(value=self.config.get("whisper_model_size", "base"))
+        whisper_model_combo = ttk.Combobox(voice_card, textvariable=self.whisper_model_var,
+                                           width=20, state='readonly',
+                                           values=["tiny", "base", "small", "medium", "large"])
+        whisper_model_combo.grid(row=12, column=1, sticky='w', padx=5, pady=5)
 
         # Button frame for voice actions
         voice_button_frame = ttk.Frame(voice_card)
@@ -2128,38 +2168,38 @@ class AIStreamerGUI:
         header.pack(fill='x')
         header.pack_propagate(False)
 
-        tk.Label(header, text="✨ Welcome! ✨",
+        tk.Label(header, text="Welcome!",
                  font=self.title_font, bg=COLORS['accent'], fg='white').pack(expand=True)
 
         # Content
         content_frame = tk.Frame(wizard, bg=COLORS['frame_bg'])
         content_frame.pack(fill='both', expand=True, padx=20, pady=20)
 
-        tk.Label(content_frame, text="Let's get you started! 🚀",
+        tk.Label(content_frame, text="Let's get you started!",
                  font=self.header_font, bg=COLORS['frame_bg'], fg=COLORS['accent']).pack(pady=10)
 
         instructions_text = """The app is ready to use! Here's what you need to know:
 
-1. 🤖 First Step: Get an OpenAI API Key
+1. First Step: Get an OpenAI API Key
    • Go to the Settings tab
    • Enter your OpenAI API key
    • Click Save Settings
 
-2. 🎤 Voice Control
+2. Voice Control
    • Hold the V key to record your voice
    • Release to process and get AI response
 
-3. 💬 Optional: Connect to Twitch
+3. Optional: Connect to Twitch
    • Enter your Twitch credentials in Settings
    • Go to Twitch tab and click Connect
 
-4. 📹 For Streamers: OBS Setup
+4. For Streamers: OBS Setup
    • Add an Image Source in OBS
    • Point it to 'current_avatar.png'
    • The avatar will change when AI speaks!
 
 All settings are in the Settings tab with detailed instructions.
-Have fun streaming! 💜"""
+Have fun streaming!"""
 
         text_widget = tk.Text(content_frame, wrap='word', width=60, height=15,
                               bg=COLORS['entry_bg'], fg=COLORS['text'], font=self.normal_font,
@@ -2169,7 +2209,7 @@ Have fun streaming! 💜"""
         text_widget.config(state='disabled')
 
         # Close button
-        StyledButton(content_frame, text="Got it! Let's go! 🚀",
+        StyledButton(content_frame, text="Got it! Let's go!",
                      command=wizard.destroy,
                      bg=COLORS['success']).pack(pady=20)
 
@@ -2217,20 +2257,13 @@ Have fun streaming! 💜"""
                 text=f"Recording... Release [{self.config.get('push_to_talk_key', 'V').upper()}] to stop",
                 foreground=COLORS['error']))
 
-        # Get device index and energy threshold
+        # Get device index
         device_index = self.config.get("input_device_index", -1)
         if device_index < 0:
             device_index = None
 
-        # Get energy threshold from GUI if available, otherwise from config
-        if hasattr(self, 'mic_sensitivity_var'):
-            energy_threshold = self.mic_sensitivity_var.get()
-        else:
-            energy_threshold = self.config.get("mic_energy_threshold", 500)
-
-        # Start recording
-        print(f"Starting voice recording with device index: {device_index}, threshold: {energy_threshold}")
-        success = self.speech_recognition.start_recording(device_index, energy_threshold)
+        # Start continuous recording
+        success = self.speech_recognition.recorder.start_recording(device_index)
         if not success:
             self.message_queue.put(("system", "Failed to start recording. Check your microphone."))
             self.is_listening = False
@@ -2255,36 +2288,49 @@ Have fun streaming! 💜"""
         def process_thread():
             try:
                 print("Stopping recording and transcribing...")
-                # Stop recording and get transcription
-                text = self.speech_recognition.stop_and_transcribe()
 
-                if text and text.strip():
-                    print(f"Successfully transcribed: {text}")
-                    # Show what was heard
-                    self.message_queue.put(("user", f"[Voice]: {text}"))
+                # Stop recording and get audio
+                audio_data = self.speech_recognition.recorder.stop_recording()
 
-                    # Check if we should include screen capture
-                    include_screen = self.config.get("voice_capture_screen", False)
+                if audio_data:
+                    # Transcribe with enhanced recognition
+                    text = self.speech_recognition.transcribe_audio(audio_data)
 
-                    if include_screen:
-                        # Get screen capture
-                        screen_b64 = ScreenCapture.capture_screen_base64()
+                    if text and text.strip():
+                        print(f"Successfully transcribed: {text}")
+                        # Show what was heard
+                        self.message_queue.put(("user", f"[Voice]: {text}"))
 
-                        # Get AI response with screen context
-                        prompt = f"User said: {text}"
-                        if screen_b64:
-                            prompt += " (Also consider what's visible on screen)"
+                        # Check if we should include screen capture
+                        include_screen = self.config.get("voice_capture_screen", False)
 
-                        response = self.ai.get_response(prompt, screen_b64)
+                        if include_screen:
+                            # Get screen capture
+                            screen_b64 = ScreenCapture.capture_screen_base64()
+
+                            # Get AI response with screen context
+                            prompt = f"User said: {text}"
+                            if screen_b64:
+                                prompt += " (Also consider what's visible on screen)"
+
+                            response = self.ai.get_response(prompt, screen_b64)
+                        else:
+                            # Just use voice input without screen
+                            response = self.ai.get_response(f"User said: {text}")
+
+                        self.message_queue.put(("ai", response))
                     else:
-                        # Just use voice input without screen
-                        response = self.ai.get_response(f"User said: {text}")
-
-                    self.message_queue.put(("ai", response))
+                        print("No speech detected or transcription failed")
+                        provider_name = self.speech_recognition.provider.value
+                        self.message_queue.put(("system",
+                                                f"No speech detected using {provider_name}.\n"
+                                                f"Tips:\n"
+                                                f"• Speak clearly and at normal volume\n"
+                                                f"• Check microphone selection in Settings\n"
+                                                f"• Try adjusting Mic Sensitivity\n"
+                                                f"• Consider enabling Noise Reduction"))
                 else:
-                    print("No speech detected or transcription failed")
-                    self.message_queue.put(("system",
-                                            "No speech detected. Make sure:\n• Your microphone is working\n• You're speaking clearly\n• The correct microphone is selected in Settings"))
+                    self.message_queue.put(("system", "No audio was recorded"))
 
                 # Update status
                 self.update_status("Voice", "Ready", COLORS['success'])
@@ -2527,6 +2573,12 @@ Have fun streaming! 💜"""
         self.config.set("elevenlabs_api_key", self.elevenlabs_entry.get())
         self.config.set("azure_tts_key", self.azure_entry.get())
         self.config.set("azure_tts_region", self.azure_region_entry.get())
+        self.config.set("speech_provider", self.speech_provider_var.get())
+        self.config.set("noise_reduction", self.noise_reduction_var.get())
+        self.config.set("normalize_audio", self.normalize_audio_var.get())
+        self.config.set("whisper_model_size", self.whisper_model_var.get())
+
+        self.speech_recognition = create_enhanced_recognizer(self.config)
 
         # Save voice settings
         provider = self.voice_provider_var.get()
